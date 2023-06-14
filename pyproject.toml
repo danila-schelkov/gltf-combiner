@@ -1,0 +1,16 @@
+[tool.poetry]
+name = "gltf-combiner"
+version = "0.1.0"
+description = ""
+authors = ["Danila <crowo4ka@gmail.com>"]
+readme = "README.md"
+packages = [{include = "gltf_combiner"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+orjson = "^3.9.1"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
