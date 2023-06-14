@@ -7,10 +7,10 @@ class Chunk:
     type: bytes
     data: bytes
 
-    def json(self):
+    def json(self) -> dict:
         return orjson.loads(self.data)
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.data)
 
     def __repr__(self) -> str:

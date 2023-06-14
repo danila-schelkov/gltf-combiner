@@ -1,8 +1,9 @@
 import os
 from io import BytesIO
-from typing import Iterable, Self
+from typing import Self
 
 from gltf_combiner.gltf.chunk import Chunk
+from gltf_combiner.gltf.exceptions.wrong_file_exception import WrongFileException
 
 GLTF_HEADER_SIZE = 12
 
@@ -41,7 +42,7 @@ class GlTF:
         self._file_read_buffer = BytesIO(file_data)
 
         if self._validate(file_length):
-            return
+            raise WrongFileException("File is not validated!")
 
         self._chunks = self._parse_chunks()
         assert is_at_end(self._file_read_buffer), "Cannot parse whole file."
@@ -99,7 +100,7 @@ class GlTF:
 
         return False
 
-    def _parse_chunks(self) -> Iterable[Chunk]:
+    def _parse_chunks(self) -> list[Chunk]:
         chunks = []
 
         while not is_at_end(self._file_read_buffer):
