@@ -21,9 +21,7 @@ def main() -> None:
 
     geometry_buffer_accessors: list[dict] = geometry_json["accessors"]
     geometry_buffer_accessor_count = len(geometry_buffer_accessors)
-
-    geometry_buffer_nodes: list[dict] = geometry_json["nodes"]
-    geometry_buffer_node_count = len(geometry_buffer_nodes)
+    geometry_geom_node_count = len(geometry_json["nodes"]) - len(animation_json["nodes"])
 
     geometry_buffer_length = geometry_buffers[0]["byteLength"]
     add_to_dict_value(geometry_buffers[0], "byteLength", animation_json["buffers"][0]["byteLength"])
@@ -34,29 +32,13 @@ def main() -> None:
     for accessor in animation_json["accessors"]:
         add_to_dict_value(accessor, "bufferView", geometry_buffer_view_count)
 
-    geometry_json["skins"] = geometry_json["skins"]
-    for skin in animation_json["skins"]:
-        skin["joints"] = [joint + geometry_buffer_node_count
-                          for joint in skin["joints"]]
-        add_to_dict_value(skin, "inverseBindMatrices", geometry_buffer_accessor_count)
-
     for animation in animation_json["animations"]:
         for sampler in animation["samplers"]:
             add_to_dict_value(sampler, "input", geometry_buffer_accessor_count)
             add_to_dict_value(sampler, "output", geometry_buffer_accessor_count)
         for channel in animation["channels"]:
-            add_to_dict_value(channel["target"], "node", 7)
-
-    for node in animation_json["nodes"]:
-        if "children" not in node:
-            continue
-
-        node["children"] = [child_node + geometry_buffer_node_count
-                            for child_node in node["children"]]
-
-    for scene in animation_json["scenes"]:
-        scene["nodes"] = [node + geometry_buffer_node_count
-                          for node in scene["nodes"]]
+            # TODO: check how it works and if it fails, then just map nodes by names
+            add_to_dict_value(channel["target"], "node", geometry_geom_node_count)
 
     for key, value in animation_json.items():
         if isinstance(value, list):
@@ -66,7 +48,6 @@ def main() -> None:
                 continue
             else:
                 geometry_json[key].extend(value)
-            # print(key, geometry_json[key])
             continue
 
     new_bin_data = (
