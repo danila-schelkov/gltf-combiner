@@ -11,6 +11,11 @@ python = "^3.11"
 orjson = "^3.9.1"
 
 
+[tool.poetry.group.dev.dependencies]
+black = "^23.3.0"
+ruff = "^0.0.272"
+pyright = "^1.1.314"
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
