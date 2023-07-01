@@ -3,10 +3,10 @@ import re
 from pathlib import Path
 
 from gltf_combiner.combiner import build_combined_gltf
-from gltf.gltf import GlTF
+from gltf_combiner.gltf.gltf import GlTF
 
 
-def collect_files_info(input_directory: Path) -> list:
+def collect_files_info(input_directory: Path, extension="glb") -> list:
     files = [
         {"filename": file, "animation_files": []}
         for file in os.listdir(input_directory)
@@ -33,7 +33,7 @@ def collect_files_info(input_directory: Path) -> list:
                 match_basename = os.path.splitext(match)[0]
 
                 if match_basename.endswith("_geo"):
-                    pattern = re.compile(f"{match_basename[:-4]}.*.{input_directory}")
+                    pattern = re.compile(f"{match_basename[:-4]}.*(?!_geo).{extension}")
                     another_matches = list(filter(pattern.match, os.listdir(input_directory)))
                     matches = [
                         animation
