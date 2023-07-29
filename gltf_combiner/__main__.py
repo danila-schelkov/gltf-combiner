@@ -9,7 +9,8 @@ TEST_RESOURCES_PATH = Path("../test/resources")
 def main() -> None:
     input_directory = TEST_RESOURCES_PATH
     output_directory = Path("../test/combined/")
-    os.makedirs(output_directory)
+    os.makedirs(input_directory, exist_ok=True)
+    os.makedirs(output_directory, exist_ok=True)
 
     collected_files = collect_files_info(input_directory)
     for file_info in collected_files:
