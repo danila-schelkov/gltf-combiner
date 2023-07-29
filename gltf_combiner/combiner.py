@@ -47,16 +47,12 @@ def _update_json(geometry_json: dict, animation_json: dict) -> None:
     geometry_buffer_length = geometry_json["buffers"][0]["byteLength"]
     geometry_buffer_view_count = len(geometry_json["bufferViews"])
     geometry_buffer_accessor_count = len(geometry_json["accessors"])
-    geometry_geom_node_count = len(geometry_json["nodes"]) - len(
-        animation_json["nodes"]
-    )
+    nodes_mapping = _get_nodes_mapping(geometry_json, animation_json)
 
     _update_buffer(geometry_json, animation_json["buffers"][0]["byteLength"])
     _update_buffer_views(animation_json, geometry_buffer_length)
     _update_accessors(animation_json, geometry_buffer_view_count)
-    _update_animations(
-        animation_json, geometry_buffer_accessor_count, geometry_geom_node_count
-    )
+    _update_animations(animation_json, geometry_buffer_accessor_count, nodes_mapping)
 
 
 def _update_buffer(geometry_json: dict, animation_buffer_length: int) -> None:
@@ -77,18 +73,37 @@ def _update_accessors(animation_json: dict, geometry_buffer_view_count: int) -> 
         _add_to_dict_value(accessor, "bufferView", geometry_buffer_view_count)
 
 
+def _get_nodes_mapping(
+    geometry_json: dict,
+    animation_json: dict,
+) -> dict[int, int]:
+    nodes_mapping: dict[int, int] = {}
+
+    geometry_nodes: list[dict[str, object]] = list(geometry_json["nodes"])
+    animation_nodes: list[dict[str, object]] = animation_json["nodes"]
+    for animation_node_index, animation_node in enumerate(animation_nodes):
+        for geometry_node_index, geometry_node in enumerate(geometry_nodes):
+            if (
+                geometry_node["name"] == animation_node["name"]
+                and "mesh" not in geometry_node
+            ):
+                nodes_mapping[animation_node_index] = geometry_node_index
+                break
+
+    return nodes_mapping
+
+
 def _update_animations(
     animation_json: dict,
     geometry_buffer_accessor_count: int,
-    geometry_geom_node_count: int,
+    nodes_mapping: dict[int, int],
 ) -> None:
     for animation in animation_json["animations"]:
         for sampler in animation["samplers"]:
             _add_to_dict_value(sampler, "input", geometry_buffer_accessor_count)
             _add_to_dict_value(sampler, "output", geometry_buffer_accessor_count)
         for channel in animation["channels"]:
-            # TODO: check how it works and if it fails, then just map nodes by names
-            _add_to_dict_value(channel["target"], "node", geometry_geom_node_count)
+            channel["target"]["node"] = nodes_mapping[channel["target"]["node"]]
 
 
 def _join_dictionaries(geometry_json: dict, animation_json: dict) -> dict:
