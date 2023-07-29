@@ -34,7 +34,9 @@ def collect_files_info(input_directory: Path, extension="glb") -> list:
 
                 if match_basename.endswith("_geo"):
                     pattern = re.compile(f"{match_basename[:-4]}.*(?!_geo).{extension}")
-                    another_matches = list(filter(pattern.match, os.listdir(input_directory)))
+                    another_matches = list(
+                        filter(pattern.match, os.listdir(input_directory))
+                    )
                     matches = [
                         animation
                         for animation in matches
