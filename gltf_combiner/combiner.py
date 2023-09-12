@@ -3,6 +3,7 @@ import os
 import orjson
 
 from gltf_combiner.gltf.chunk import Chunk
+from gltf_combiner.gltf.exceptions import AnimationNotFoundException
 from gltf_combiner.gltf.gltf import GlTF
 
 JSON_REPLACEMENT_LIST = ("textures", "images")
@@ -30,6 +31,9 @@ def _build_combined_gltf(geometry_gltf: GlTF, animation_gltf: GlTF) -> GlTF:
 
     geometry_json = geometry_json_chunk.json()
     animation_json = animation_json_chunk.json()
+
+    if not ("animations" in animation_json):
+        raise AnimationNotFoundException("animations node wasn't found")
 
     _update_json(geometry_json, animation_json)
 

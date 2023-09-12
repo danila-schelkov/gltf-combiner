@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 
 from gltf_combiner import build_combined_gltf, collect_files_info
+from gltf_combiner.gltf.exceptions import AnimationNotFoundException
 
 TEST_RESOURCES_PATH = Path("../test/resources")
 
@@ -21,9 +22,13 @@ def main() -> None:
         print(f"Working with {filename}...")
 
         for animation_filename in file_info["animation_files"]:
-            gltf = build_combined_gltf(
-                input_directory / filename, input_directory / animation_filename
-            )
+            try:
+                gltf = build_combined_gltf(
+                    input_directory / filename, input_directory / animation_filename
+                )
+            except AnimationNotFoundException:
+                print(f"No animation in the file {animation_filename!r}. File Skipped!")
+                continue
 
             output_filepath = output_directory / animation_filename
             gltf.write(output_filepath)
