@@ -6,6 +6,9 @@ from gltf_combiner.combiner import build_combined_gltf
 from gltf_combiner.gltf.gltf import GlTF
 
 
+__all__ = ["build_combined_gltf", "GlTF", "collect_files_info"]
+
+
 def collect_files_info(input_directory: Path, extension="glb") -> list:
     files = [
         {"filename": file, "animation_files": []}

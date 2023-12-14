@@ -33,7 +33,7 @@ def main() -> None:
             output_filepath = output_directory / animation_filename
             gltf.write(output_filepath)
 
-            print(f'Combined! Saved to the "{output_filepath}".')
+            print(f' - Combined! Saved to the "{output_filepath}".')
 
     print("Done!")
 
