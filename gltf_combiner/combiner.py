@@ -2,12 +2,17 @@ import os
 
 import orjson
 
+from gltf_combiner.extensions.flatbuffer import deserialize_buffer_to_dict
 from gltf_combiner.gltf.chunk import Chunk
 from gltf_combiner.gltf.exceptions import AnimationNotFoundException
 from gltf_combiner.gltf.gltf import GlTF
 
+JSON_CHUNK_TYPE = b"JSON"
+FLATBUFFER_CHUNK_TYPE = b"FLA2"
+BIN_CHUNK_TYPE = b"BIN\x00"
+
 JSON_REPLACEMENT_LIST = ("textures", "images")
-JSON_SKIP_LIST = ("buffers", "skins", "nodes", "scenes")
+JSON_SKIP_LIST = ("buffers", "skins", "nodes", "scenes", "meshes")
 
 
 def build_combined_gltf(
@@ -20,31 +25,53 @@ def build_combined_gltf(
 
 
 def _build_combined_gltf(geometry_gltf: GlTF, animation_gltf: GlTF) -> GlTF:
-    geometry_json_chunk = geometry_gltf.get_chunk_by_type(b"JSON")
-    animation_json_chunk = animation_gltf.get_chunk_by_type(b"JSON")
-    geometry_bin_chunk = geometry_gltf.get_chunk_by_type(b"BIN\x00")
-    animation_bin_chunk = animation_gltf.get_chunk_by_type(b"BIN\x00")
-    assert geometry_json_chunk is not None
+    geometry_json_chunk = geometry_gltf.get_chunk_by_type(JSON_CHUNK_TYPE)
+    geometry_flatbuffer_chunk = geometry_gltf.get_chunk_by_type(FLATBUFFER_CHUNK_TYPE)
+    geometry_bin_chunk = geometry_gltf.get_chunk_by_type(BIN_CHUNK_TYPE)
+
+    animation_json_chunk = animation_gltf.get_chunk_by_type(JSON_CHUNK_TYPE)
+    animation_flatbuffer_chunk = animation_gltf.get_chunk_by_type(FLATBUFFER_CHUNK_TYPE)
+    animation_bin_chunk = animation_gltf.get_chunk_by_type(BIN_CHUNK_TYPE)
+
+    # Checking info chunks
+    assert geometry_json_chunk is not None or geometry_flatbuffer_chunk is not None
+    assert animation_json_chunk is not None or animation_flatbuffer_chunk is not None
+
+    # Checking data chunks
     assert geometry_bin_chunk is not None
-    assert animation_json_chunk is not None
     assert animation_bin_chunk is not None
 
-    geometry_json = geometry_json_chunk.json()
-    animation_json = animation_json_chunk.json()
+    geometry_json = (
+        geometry_json_chunk.json()
+        if geometry_json_chunk
+        else deserialize_buffer_to_dict(geometry_flatbuffer_chunk.data)
+    )
+    animation_json = (
+        animation_json_chunk.json()
+        if animation_json_chunk
+        else deserialize_buffer_to_dict(animation_flatbuffer_chunk.data)
+    )
 
     if not ("animations" in animation_json):
         raise AnimationNotFoundException("animations node wasn't found")
 
+    # fixed_geometry_bin_chunk_data = _fix_texcoord(geometry_json, geometry_bin_chunk.data)
     _update_json(geometry_json, animation_json)
 
     joined_dictionary = _join_dictionaries(geometry_json, animation_json)
 
-    new_json_chunk = Chunk(b"JSON", orjson.dumps(joined_dictionary))
+    new_json_chunk = Chunk(JSON_CHUNK_TYPE, orjson.dumps(joined_dictionary))
     new_bin_chunk = Chunk(
-        b"BIN\x00", geometry_bin_chunk.data + animation_bin_chunk.data
+        BIN_CHUNK_TYPE, geometry_bin_chunk.data + animation_bin_chunk.data
     )
 
     return GlTF([new_json_chunk, new_bin_chunk])
+
+
+def _patch_accessor_component_types(data: dict):
+    for accessor in data["accessors"]:
+        # Remove Supercell's mark of accessor type
+        accessor["componentType"] &= 0x0000FFFF
 
 
 def _update_json(geometry_json: dict, animation_json: dict) -> None:
@@ -54,6 +81,9 @@ def _update_json(geometry_json: dict, animation_json: dict) -> None:
     nodes_mapping = _get_nodes_mapping(geometry_json, animation_json)
 
     _update_buffer(geometry_json, animation_json["buffers"][0]["byteLength"])
+    _patch_accessor_component_types(geometry_json)
+    _patch_accessor_component_types(animation_json)
+    # _update_texcoord_accessors(geometry_json)
     _update_buffer_views(animation_json, geometry_buffer_length)
     _update_accessors(animation_json, geometry_buffer_view_count)
     _update_animations(animation_json, geometry_buffer_accessor_count, nodes_mapping)
