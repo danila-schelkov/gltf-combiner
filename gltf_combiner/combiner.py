@@ -106,7 +106,24 @@ def _update_animations(
         for sampler in animation["samplers"]:
             _add_to_dict_value(sampler, "input", geometry_buffer_accessor_count)
             _add_to_dict_value(sampler, "output", geometry_buffer_accessor_count)
-        for channel in animation["channels"]:
+
+        channels: list = animation["channels"]
+        filtered_channels = list(
+            filter(
+                lambda channel1: channel1["target"]["node"] in nodes_mapping, channels
+            )
+        )
+
+        if (deleted_channel_count := len(channels) - len(filtered_channels)) > 0:
+            animation["channels"] = filtered_channels
+            print(
+                f"Some animation channels are deleted... "
+                f"{len(filtered_channels)} out of {len(channels)} left."
+            )
+            # TODO: log about number of deleted channels into the console
+            # TODO: check if all channels are deleted and throw an exception
+
+        for channel in filtered_channels:
             channel["target"]["node"] = nodes_mapping[channel["target"]["node"]]
 
 
@@ -126,4 +143,4 @@ def _join_dictionaries(geometry_json: dict, animation_json: dict) -> dict:
 
 
 def _add_to_dict_value(dictionary: dict, key: str, value_to_add: int) -> None:
-    dictionary[key] = dictionary[key] + value_to_add
+    dictionary[key] = dictionary.get(key, 0) + value_to_add
