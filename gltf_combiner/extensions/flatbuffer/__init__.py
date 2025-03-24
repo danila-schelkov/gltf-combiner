@@ -1,4 +1,4 @@
-from extensions.flatbuffer.deserializer import deserialize_buffer_to_dict
-from extensions.flatbuffer.serializer import serialize_dict_to_buffer
+from .deserializer import deserialize_glb_json
+from .serializer import serialize_glb_json
 
-__all__ = ["deserialize_buffer_to_dict", "serialize_dict_to_buffer"]
+__all__ = ["deserialize_glb_json", "serialize_glb_json"]

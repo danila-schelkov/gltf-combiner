@@ -4,10 +4,10 @@ from enum import IntEnum
 from flatbuffers import flexbuffers
 from flatbuffers.compat import import_numpy
 
-from ..flatbuffer.common import pascal_case
-from ..flatbuffer.generated.glTF_generated import Root
-from ..flatbuffer.preprocessor import Preprocessor
-from ..flatbuffer.schema import gltf_schema
+from .common import pascal_case
+from .generated.glTF_generated import Root
+from .preprocessor import Preprocessor
+from .schema import gltf_schema
 
 np = import_numpy()
 
@@ -103,12 +103,13 @@ def _deserialize_flatbuffer(buffer: any, schema: dict) -> dict:
     return result
 
 
-def deserialize_buffer_to_dict(data: bytes) -> dict:
+def deserialize_glb_json(data: bytes) -> dict:
     """
     The function takes bytes of glTF FLA2 chunk data and returns a dictionary
     containing the deserialized JSON data.
 
     :param data: A bytes that represents glTF FLA2 chunk data
+    :type data: bytes
     :return: JSON data in python dict that can be used for serialization to usual json or using in python
     """
     flatbuffer = Root.GetRootAs(bytearray(data))

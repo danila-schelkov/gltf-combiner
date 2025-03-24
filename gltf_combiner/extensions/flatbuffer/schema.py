@@ -1,6 +1,6 @@
 from enum import IntEnum
 
-import gltf_combiner.extensions.flatbuffer.generated.glTF_generated as flat
+from .generated import glTF_generated as flat
 
 
 class AccessorType(IntEnum):

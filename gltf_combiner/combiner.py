@@ -2,7 +2,7 @@ import os
 
 import orjson
 
-from gltf_combiner.extensions.flatbuffer import deserialize_buffer_to_dict
+from gltf_combiner.extensions.flatbuffer import deserialize_glb_json
 from gltf_combiner.gltf.chunk import Chunk
 from gltf_combiner.gltf.exceptions import AnimationNotFoundException
 from gltf_combiner.gltf.gltf import GlTF
@@ -44,12 +44,12 @@ def _build_combined_gltf(geometry_gltf: GlTF, animation_gltf: GlTF) -> GlTF:
     geometry_json = (
         geometry_json_chunk.json()
         if geometry_json_chunk
-        else deserialize_buffer_to_dict(geometry_flatbuffer_chunk.data)
+        else deserialize_glb_json(geometry_flatbuffer_chunk.data)
     )
     animation_json = (
         animation_json_chunk.json()
         if animation_json_chunk
-        else deserialize_buffer_to_dict(animation_flatbuffer_chunk.data)
+        else deserialize_glb_json(animation_flatbuffer_chunk.data)
     )
 
     if not ("animations" in animation_json):
@@ -83,7 +83,6 @@ def _update_json(geometry_json: dict, animation_json: dict) -> None:
     _update_buffer(geometry_json, animation_json["buffers"][0]["byteLength"])
     _patch_accessor_component_types(geometry_json)
     _patch_accessor_component_types(animation_json)
-    # _update_texcoord_accessors(geometry_json)
     _update_buffer_views(animation_json, geometry_buffer_length)
     _update_accessors(animation_json, geometry_buffer_view_count)
     _update_animations(animation_json, geometry_buffer_accessor_count, nodes_mapping)
