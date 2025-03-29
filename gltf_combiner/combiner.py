@@ -24,6 +24,30 @@ def build_combined_gltf(
     return _build_combined_gltf(geometry_gltf, animation_gltf)
 
 
+def rebuild_gltf(geometry_filepath: os.PathLike | str) -> GlTF:
+    geometry_gltf = GlTF().parse(geometry_filepath)
+
+    geometry_json_chunk = geometry_gltf.get_chunk_by_type(JSON_CHUNK_TYPE)
+    geometry_flatbuffer_chunk = geometry_gltf.get_chunk_by_type(FLATBUFFER_CHUNK_TYPE)
+    geometry_bin_chunk = geometry_gltf.get_chunk_by_type(BIN_CHUNK_TYPE)
+
+    # Checking info chunks
+    assert geometry_json_chunk is not None or geometry_flatbuffer_chunk is not None
+
+    # Checking data chunks
+    assert geometry_bin_chunk is not None
+
+    geometry_json = (
+        geometry_json_chunk.json()
+        if geometry_json_chunk
+        else deserialize_glb_json(geometry_flatbuffer_chunk.data)
+    )
+
+    new_json_chunk = Chunk(JSON_CHUNK_TYPE, orjson.dumps(geometry_json))
+
+    return GlTF([new_json_chunk, geometry_bin_chunk])
+
+
 def _build_combined_gltf(geometry_gltf: GlTF, animation_gltf: GlTF) -> GlTF:
     geometry_json_chunk = geometry_gltf.get_chunk_by_type(JSON_CHUNK_TYPE)
     geometry_flatbuffer_chunk = geometry_gltf.get_chunk_by_type(FLATBUFFER_CHUNK_TYPE)
