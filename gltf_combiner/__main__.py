@@ -4,12 +4,12 @@ from pathlib import Path
 from gltf_combiner import build_combined_gltf, collect_files_info
 from gltf_combiner.gltf.exceptions import AnimationNotFoundException
 
-TEST_RESOURCES_PATH = Path("../test/resources")
+TEST_RESOURCES_PATH = Path("resources")
 
 
 def main() -> None:
     input_directory = TEST_RESOURCES_PATH
-    output_directory = Path("../test/combined/")
+    output_directory = Path("combined/")
     os.makedirs(input_directory, exist_ok=True)
     os.makedirs(output_directory, exist_ok=True)
 

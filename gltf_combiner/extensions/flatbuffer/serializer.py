@@ -4,12 +4,12 @@ from enum import IntEnum
 from flatbuffers import flexbuffers, Builder
 from flatbuffers.compat import import_numpy
 
-import generated.glTF_generated as flat
+from .generated import glTF_generated as flat
 
 np = import_numpy()
 
-from gltf_combiner.extensions.flatbuffer.common import pascal_case
-from gltf_combiner.extensions.flatbuffer.schema import gltf_schema
+from .common import pascal_case
+from .schema import gltf_schema
 
 
 def _serialize_gather(builder: Builder, class_name: str, gather: dict) -> any:
@@ -125,7 +125,7 @@ def _serialize_flatbuffer(builder: Builder, data: dict, schema: dict) -> any:
     return _serialize_gather(builder, class_name, gather)
 
 
-def serialize_dict_to_buffer(data: dict) -> bytes:
+def serialize_glb_json(data: dict) -> bytes:
     flatbuffer = Builder()
 
     root = _serialize_flatbuffer(flatbuffer, data, gltf_schema)
