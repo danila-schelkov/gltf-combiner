@@ -4,7 +4,10 @@ import orjson
 
 from gltf_combiner.extensions.flatbuffer import deserialize_glb_json
 from gltf_combiner.gltf.chunk import Chunk
-from gltf_combiner.gltf.exceptions import AnimationNotFoundException
+from gltf_combiner.gltf.exceptions import (
+    AnimationNotFoundException,
+    AllAnimationChannelsDeletedException
+)
 from gltf_combiner.gltf.gltf import GlTF
 from gltf_combiner.streams import ByteReader, ByteWriter
 
@@ -17,12 +20,17 @@ JSON_SKIP_LIST = ("buffers", "skins", "nodes", "scenes", "meshes")
 
 
 def build_combined_gltf(
-    geometry_filepath: os.PathLike | str, animation_filepath: os.PathLike | str, *, fix_texcoords: bool = False
+    geometry_filepath: os.PathLike | str,
+    animation_filepath: os.PathLike | str,
+    *,
+    fix_texcoords: bool = False,
 ) -> GlTF:
     geometry_gltf = GlTF().parse(geometry_filepath)
     animation_gltf = GlTF().parse(animation_filepath)
 
-    return _build_combined_gltf(geometry_gltf, animation_gltf, fix_texcoords=fix_texcoords)
+    return _build_combined_gltf(
+        geometry_gltf, animation_gltf, fix_texcoords=fix_texcoords
+    )
 
 
 def rebuild_gltf(
@@ -255,13 +263,15 @@ def _update_animations(
         )
 
         if (deleted_channel_count := len(channels) - len(filtered_channels)) > 0:
+            if deleted_channel_count == len(channels):
+                raise AllAnimationChannelsDeletedException()
+
             animation["channels"] = filtered_channels
+
             print(
                 f"Some animation channels ({deleted_channel_count}) are deleted... "
                 f"{len(filtered_channels)} out of {len(channels)} left."
             )
-            # TODO: log about number of deleted channels into the console
-            # TODO: check if all channels are deleted and throw an exception
 
         for channel in filtered_channels:
             channel["target"]["node"] = nodes_mapping[channel["target"]["node"]]

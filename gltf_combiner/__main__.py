@@ -3,7 +3,10 @@ import re
 from pathlib import Path
 
 from gltf_combiner import build_combined_gltf
-from gltf_combiner.gltf.exceptions import AnimationNotFoundException
+from gltf_combiner.gltf.exceptions import (
+    AnimationNotFoundException,
+    AllAnimationChannelsDeletedException
+)
 
 RESOURCES_PATH = Path("resources")
 COMBINED_PATH = Path("combined")
@@ -73,9 +76,11 @@ def main() -> None:
         for animation_filename in file_info["animation_files"]:
             try:
                 gltf = build_combined_gltf(
-                    input_directory / filename, input_directory / animation_filename, fix_texcoords=True
+                    input_directory / filename,
+                    input_directory / animation_filename,
+                    fix_texcoords=True,
                 )
-            except AnimationNotFoundException:
+            except AnimationNotFoundException | AllAnimationChannelsDeletedException:
                 print(f"No animation in the file {animation_filename!r}. File Skipped!")
                 continue
 
