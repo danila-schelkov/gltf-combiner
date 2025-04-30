@@ -5,15 +5,18 @@ import orjson
 
 from gltf_combiner.extensions import SupercellOdinGLTF
 from gltf_combiner.extensions.flatbuffer.deserializer import deserialize_glb_json
-from gltf_combiner.gltf import Chunk
-from gltf_combiner.gltf import GlTF
-from gltf_combiner.gltf import JSON_CHUNK_TYPE, BIN_CHUNK_TYPE, FLATBUFFER_CHUNK_TYPE
-from gltf_combiner.gltf.exceptions import (
-    AnimationNotFoundException,
-    AllAnimationChannelsDeletedException
+from gltf_combiner.gltf import (
+    BIN_CHUNK_TYPE,
+    FLATBUFFER_CHUNK_TYPE,
+    JSON_CHUNK_TYPE,
+    Chunk,
+    GlTF,
 )
-from gltf_combiner.streams import ByteReader
-from gltf_combiner.streams import ByteWriter
+from gltf_combiner.gltf.exceptions import (
+    AllAnimationChannelsDeletedException,
+    AnimationNotFoundException,
+)
+from gltf_combiner.streams import ByteReader, ByteWriter
 
 JSON_REPLACEMENT_LIST = ("textures", "images")
 JSON_SKIP_LIST = ("buffers", "skins", "nodes", "scenes", "meshes")
@@ -28,7 +31,9 @@ def build_combined_gltf(
     geometry_gltf = SupercellOdinGLTF(GlTF.parse(geometry_filepath)).remove_odin()
     animation_gltf = SupercellOdinGLTF(GlTF.parse(animation_filepath)).remove_odin()
 
-    return _build_combined_gltf(geometry_gltf, animation_gltf, fix_texcoords=fix_texcoords)
+    return _build_combined_gltf(
+        geometry_gltf, animation_gltf, fix_texcoords=fix_texcoords
+    )
 
 
 def rebuild_gltf(filepath: os.PathLike | str) -> GlTF:
@@ -154,9 +159,9 @@ def _fix_texcoord_accessor(
         fix_value(buffer_reader, fixed_buffer)
         fix_value(buffer_reader, fixed_buffer)
 
-    buffer_bytes[buffer_index][
-        offset : offset + len(fixed_buffer.buffer)
-    ] = fixed_buffer.buffer
+    buffer_bytes[buffer_index][offset : offset + len(fixed_buffer.buffer)] = (
+        fixed_buffer.buffer
+    )
 
 
 def _patch_accessor_component_types(data: dict):

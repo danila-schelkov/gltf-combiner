@@ -1,16 +1,13 @@
 import numpy as np
 import orjson
 
-from gltf_combiner.streams import ByteReader
-from gltf_combiner.streams import ByteWriter
-from .gltf_constants import DataType, ComponentType
+from gltf_combiner.streams import ByteReader, ByteWriter
+
+from ...gltf import BIN_CHUNK_TYPE, FLATBUFFER_CHUNK_TYPE, JSON_CHUNK_TYPE, Chunk, GlTF
+from ..flatbuffer import deserialize_glb_json
+from .gltf_constants import ComponentType, DataType
 from .odin_attribute import OdinAttribute
 from .odin_constants import OdinAttributeFormat, OdinAttributeType
-from ..flatbuffer import deserialize_glb_json
-from ...gltf import Chunk
-from ...gltf import GlTF, FLATBUFFER_CHUNK_TYPE
-from ...gltf import JSON_CHUNK_TYPE, BIN_CHUNK_TYPE
-
 
 ## Exclusive Accessor Component Types
 # 1 - Float Vector 3
@@ -192,7 +189,11 @@ class SupercellOdinGLTF:
         indices = primitive.get("indices")
         count = self.calculate_odin_position_count(self._data["accessors"][indices])
 
-        mesh_descriptor = odin if "vertexDescriptors" in odin else self._mesh_descriptors[odin["meshDataInfoIndex"]]
+        mesh_descriptor = (
+            odin
+            if "vertexDescriptors" in odin
+            else self._mesh_descriptors[odin["meshDataInfoIndex"]]
+        )
         vertex_descriptors: list[dict] = mesh_descriptor["vertexDescriptors"]
 
         attributes = {}
@@ -215,12 +216,12 @@ class SupercellOdinGLTF:
             attribute_type_index = attribute["index"]
             attribute_format_index = attribute["format"]
             if attribute_type_index not in list(OdinAttributeType):
-                print(f"Unknown attribute name \"{attribute.get('name')}\". Skip...")
+                print(f'Unknown attribute name "{attribute.get("name")}". Skip...')
                 continue
 
             if attribute_format_index not in list(OdinAttributeFormat):
                 print(
-                    f"Unknown format \"{attribute_format_index}\" in attribute \"{attribute.get('name')}\". Skip..."
+                    f'Unknown format "{attribute_format_index}" in attribute "{attribute.get("name")}". Skip...'
                 )
                 continue
 
