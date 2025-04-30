@@ -1,14 +1,19 @@
-from odin_constants import OdinAttributeFormat, OdinAttributeType
 import numpy as np
+
+from .odin_constants import OdinAttributeFormat, OdinAttributeType
 
 
 class OdinAttribute:
     def __init__(
-        self, type: OdinAttributeType, format: OdinAttributeFormat, offset: int
+        self,
+        attribute_type: OdinAttributeType,
+        attribute_format: OdinAttributeFormat,
+        offset: int,
     ) -> None:
+        self.type = attribute_type
+        self.format = attribute_format
         self.offset = offset
-        self.format = format
-        self.type = type
+
         self._dtype = OdinAttributeFormat.to_numpy_dtype(self.format)
         self._elements_count = OdinAttributeFormat.to_element_count(self.format)
 

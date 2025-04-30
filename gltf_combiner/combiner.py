@@ -3,18 +3,17 @@ from typing import Any
 
 import orjson
 
-from gltf_combiner.extensions.flatbuffer import deserialize_glb_json
-from gltf_combiner.gltf.chunk import Chunk
+from gltf_combiner.extensions import SupercellOdinGLTF
+from gltf_combiner.extensions.flatbuffer.deserializer import deserialize_glb_json
+from gltf_combiner.gltf import Chunk
+from gltf_combiner.gltf import GlTF
+from gltf_combiner.gltf import JSON_CHUNK_TYPE, BIN_CHUNK_TYPE, FLATBUFFER_CHUNK_TYPE
 from gltf_combiner.gltf.exceptions import (
     AnimationNotFoundException,
-    AllAnimationChannelsDeletedException,
+    AllAnimationChannelsDeletedException
 )
-from gltf_combiner.gltf.gltf import GlTF
-from gltf_combiner.streams import ByteReader, ByteWriter
-
-JSON_CHUNK_TYPE = b"JSON"
-FLATBUFFER_CHUNK_TYPE = b"FLA2"
-BIN_CHUNK_TYPE = b"BIN\x00"
+from gltf_combiner.streams import ByteReader
+from gltf_combiner.streams import ByteWriter
 
 JSON_REPLACEMENT_LIST = ("textures", "images")
 JSON_SKIP_LIST = ("buffers", "skins", "nodes", "scenes", "meshes")
@@ -26,42 +25,14 @@ def build_combined_gltf(
     *,
     fix_texcoords: bool = False,
 ) -> GlTF:
-    geometry_gltf = GlTF().parse(geometry_filepath)
-    animation_gltf = GlTF().parse(animation_filepath)
+    geometry_gltf = SupercellOdinGLTF(GlTF.parse(geometry_filepath)).remove_odin()
+    animation_gltf = SupercellOdinGLTF(GlTF.parse(animation_filepath)).remove_odin()
 
-    return _build_combined_gltf(
-        geometry_gltf, animation_gltf, fix_texcoords=fix_texcoords
-    )
+    return _build_combined_gltf(geometry_gltf, animation_gltf, fix_texcoords=fix_texcoords)
 
 
-def rebuild_gltf(
-    geometry_filepath: os.PathLike | str, *, fix_texcoords: bool = False
-) -> GlTF:
-    geometry_gltf = GlTF().parse(geometry_filepath)
-
-    geometry_json_chunk = geometry_gltf.get_chunk_by_type(JSON_CHUNK_TYPE)
-    geometry_flatbuffer_chunk = geometry_gltf.get_chunk_by_type(FLATBUFFER_CHUNK_TYPE)
-    geometry_bin_chunk = geometry_gltf.get_chunk_by_type(BIN_CHUNK_TYPE)
-
-    # Checking info chunks
-    assert geometry_json_chunk is not None or geometry_flatbuffer_chunk is not None
-
-    # Checking data chunks
-    assert geometry_bin_chunk is not None
-
-    geometry_json = (
-        geometry_json_chunk.json()
-        if geometry_json_chunk
-        else deserialize_glb_json(geometry_flatbuffer_chunk.data)
-    )
-
-    _patch_accessor_component_types(geometry_json)
-    if fix_texcoords:
-        geometry_bin_chunk.data = _fix_texcoord(geometry_json, geometry_bin_chunk.data)
-
-    new_json_chunk = Chunk(JSON_CHUNK_TYPE, orjson.dumps(geometry_json))
-
-    return GlTF([new_json_chunk, geometry_bin_chunk])
+def rebuild_gltf(filepath: os.PathLike | str) -> GlTF:
+    return SupercellOdinGLTF(GlTF.parse(filepath)).remove_odin()
 
 
 def _build_combined_gltf(
@@ -94,7 +65,7 @@ def _build_combined_gltf(
         else deserialize_glb_json(animation_flatbuffer_chunk.data)
     )
 
-    if not ("animations" in animation_json):
+    if "animations" not in animation_json:
         raise AnimationNotFoundException("animations node wasn't found")
 
     _update_json(geometry_json, animation_json)
@@ -108,7 +79,7 @@ def _build_combined_gltf(
         BIN_CHUNK_TYPE, geometry_bin_chunk.data + animation_bin_chunk.data
     )
 
-    return GlTF([new_json_chunk, new_bin_chunk])
+    return GlTF(new_json_chunk, new_bin_chunk)
 
 
 def _fix_texcoord(geometry_json: dict, data: bytes) -> bytes:

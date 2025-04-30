@@ -1,8 +1,16 @@
+import numpy as np
+import orjson
+
+from gltf_combiner.streams import ByteReader
+from gltf_combiner.streams import ByteWriter
 from .gltf_constants import DataType, ComponentType
 from .odin_attribute import OdinAttribute
 from .odin_constants import OdinAttributeFormat, OdinAttributeType
-import numpy as np
-import json
+from ..flatbuffer import deserialize_glb_json
+from ...gltf import Chunk
+from ...gltf import GlTF, FLATBUFFER_CHUNK_TYPE
+from ...gltf import JSON_CHUNK_TYPE, BIN_CHUNK_TYPE
+
 
 ## Exclusive Accessor Component Types
 # 1 - Float Vector 3
@@ -14,49 +22,66 @@ import json
 
 class BufferView:
     def __init__(self) -> None:
-        self.stride: int = None
+        self.stride: int | None = None
+        self.offset: int | None = None
         self.data: bytes = b""
-        self.offset: int = None
 
     def serialize(self):
-        return {
+        data = {
             "buffer": 0,
             "byteOffset": self.offset,
             "byteLength": len(self.data),
-            "byteStride": self.stride,
         }
+
+        if self.stride is not None:
+            data["byteStride"] = self.stride
+
+        return data
 
 
 class SupercellOdinGLTF:
-    UsedExtensions = [
+    used_extensions = [
         # "KHR_mesh_quantization",
         # "KHR_texture_transform",
         "SC_shader"
     ]
 
-    RequiredExtensions = [
+    required_extensions = [
         # "KHR_mesh_quantization"
     ]
 
-    def __init__(self, gltf: glTF) -> None:
-        self.gltf = gltf
-        self.json = gltf.get_chunk("JSON").data
-        if isinstance(self.json, bytes):
-            self.json = json.loads(self.json)
-        self.buffers: list[BufferView] = []
-        self.odin_buffer_index: int = -1
+    def __init__(self, gltf: GlTF) -> None:
+        self._buffers: list[BufferView] = []
+        self._odin_buffer_index: int = -1
+        self._mesh_descriptors: list[dict] = []
 
-        binary = gltf.get_chunk("BIN").data
-        self.produce_buffers(binary)
+        json_chunk = gltf.get_chunk_by_type(JSON_CHUNK_TYPE)
+        flatbuffer_chunk = gltf.get_chunk_by_type(FLATBUFFER_CHUNK_TYPE)
 
-    def process(self) -> glTF:
+        # Checking info chunks
+        assert json_chunk is not None or flatbuffer_chunk is not None
+
+        self._data: dict = (
+            json_chunk.json()
+            if json_chunk
+            else deserialize_glb_json(flatbuffer_chunk.data)
+        )
+
+        bin_chunk = gltf.get_chunk_by_type(BIN_CHUNK_TYPE)
+
+        # Checking data chunks
+        assert bin_chunk is not None
+
+        self._produce_buffers(bin_chunk.data)
+
+    def remove_odin(self) -> GlTF:
         self.process_meshes_raw()
         self.process_accessors()
         self.process_skins()
         self.process_nodes()
 
-        extensions_required: list[str] = self.json.get("extensionsRequired", [])
-        extensions_used: list[str] = self.json.get("extensionsUsed", [])
+        extensions_required: list[str] = self._data.get("extensionsRequired", [])
+        extensions_used: list[str] = self._data.get("extensionsUsed", [])
 
         has_odin = False
         if "SC_odin_format" in extensions_required:
@@ -74,7 +99,7 @@ class SupercellOdinGLTF:
         return self.save()
 
     def process_accessors(self) -> None:
-        accessors: list[dict] = self.json.get("accessors", [])
+        accessors: list[dict] = self._data.get("accessors", [])
 
         for accessor in accessors:
             component = accessor["componentType"]
@@ -83,7 +108,7 @@ class SupercellOdinGLTF:
             accessor["componentType"] = component & 0x0000FFFF
 
     def process_meshes_raw(self) -> None:
-        meshes: list[dict] = self.json.get("meshes", [])
+        meshes: list[dict] = self._data.get("meshes", [])
 
         for mesh in meshes:
             primitives: dict = mesh.get("primitives")
@@ -112,29 +137,29 @@ class SupercellOdinGLTF:
                 mesh.pop("primitives")
 
     def process_nodes(self) -> None:
-        nodes: list[dict] = self.json.get("nodes", [])
+        nodes: list[dict] = self._data.get("nodes", [])
 
-        childrens: dict[int, list[int]] = {}
+        children: dict[int, list[int]] = {}
 
-        def add_child(idx: int, parent_idx: int):
-            if parent_idx not in childrens:
-                childrens[parent_idx] = []
-            childrens[parent_idx].append(idx)
+        def add_child(index: int, parent_index: int):
+            if parent_index not in children:
+                children[parent_index] = []
+            children[parent_index].append(index)
 
         for i, node in enumerate(nodes):
             extensions: dict = node.get("extensions", {})
             if "SC_odin_format" not in extensions:
                 continue
 
-            odin: dict = extensions.pop("SC_odin_format")
+            odin: dict[str, int] = extensions.pop("SC_odin_format")
             parent = odin.get("parent")
             add_child(i, parent)
 
-        for idx, children in childrens.items():
+        for idx, children in children.items():
             nodes[idx]["children"] = children
 
     def process_skins(self) -> None:
-        skins: list[dict] = self.json.get("skins", [])
+        skins: list[dict] = self._data.get("skins", [])
 
         for skin in skins:
             extensions: dict = skin.get("extensions", {})
@@ -144,7 +169,7 @@ class SupercellOdinGLTF:
             extensions.pop("SC_odin_format")
 
     def process_meshes(self) -> None:
-        meshes: list[dict] = self.json.get("meshes", [])
+        meshes: list[dict] = self._data.get("meshes", [])
 
         for mesh in meshes:
             extensions: dict = mesh.get("extensions", {})
@@ -165,11 +190,13 @@ class SupercellOdinGLTF:
 
         odin = extensions.pop("SC_odin_format")
         indices = primitive.get("indices")
-        count = self.calculate_odin_positions_count(self.json["accessors"][indices])
-        descriptors: list[dict] = odin["vertexDescriptors"]
-        attributes = {}
+        count = self.calculate_odin_position_count(self._data["accessors"][indices])
 
-        for descriptor in descriptors:
+        mesh_descriptor = odin if "vertexDescriptors" in odin else self._mesh_descriptors[odin["meshDataInfoIndex"]]
+        vertex_descriptors: list[dict] = mesh_descriptor["vertexDescriptors"]
+
+        attributes = {}
+        for descriptor in vertex_descriptors:
             self.process_odin_primitive_descriptor(descriptor, attributes, count)
 
         primitive["attributes"] = attributes
@@ -199,7 +226,7 @@ class SupercellOdinGLTF:
 
             attribute_type = OdinAttributeType(attribute_type_index)
             attribute_format = OdinAttributeFormat(attribute_format_index)
-            isInteger = attribute["interpretAsInteger"]
+            is_integer = attribute["interpretAsInteger"]
             attribute = OdinAttribute(
                 attribute_type, attribute_format, attribute["offset"]
             )
@@ -213,17 +240,17 @@ class SupercellOdinGLTF:
             attribute_descriptor.append(attribute)
             attribute_accessors.append(
                 {
-                    "bufferView": len(self.buffers) + i,
+                    "bufferView": len(self._buffers) + i,
                     "componentType": OdinAttributeFormat.to_accessor_component(
                         attribute_format
                     ),
-                    "normalized": isInteger == False,
+                    "normalized": not is_integer,
                     "count": int(positions_count),
                     "type": OdinAttributeFormat.to_accessor_type(attribute_format),
                 }
             )
 
-        mesh_buffer = self.buffers[self.odin_buffer_index].data
+        mesh_buffer = self._buffers[self._odin_buffer_index].data
         for tris_idx in range(positions_count):
             for attr_idx, attribute in enumerate(attribute_descriptor):
                 value_offset = offset + (stride * tris_idx) + attribute.offset
@@ -232,16 +259,16 @@ class SupercellOdinGLTF:
 
         for i, attribute in enumerate(attribute_descriptor):
             attribute_name = OdinAttributeType.to_attribute_name(attribute.type)
-            attributes[attribute_name] = len(self.json["accessors"]) + i
+            attributes[attribute_name] = len(self._data["accessors"]) + i
 
             buffer_view = BufferView()
             buffer_view.data = attribute_buffers[i].tobytes()
-            self.buffers.append(buffer_view)
+            self._buffers.append(buffer_view)
 
-        self.json["accessors"].extend(attribute_accessors)
+        self._data["accessors"].extend(attribute_accessors)
 
     def process_animation(self, animation: dict) -> None:
-        animations = self.json.get("animations", [])
+        animations = self._data.get("animations", [])
 
         frame_rate = animation["frameRate"]
         frame_spf = 1.0 / frame_rate
@@ -250,7 +277,7 @@ class SupercellOdinGLTF:
         odin_animation_accessor = animation["accessor"]
 
         animation_transform_array = self.decode_accessor_obj(
-            self.json["accessors"][odin_animation_accessor]
+            self._data["accessors"][odin_animation_accessor]
         )
         # Position + Quaternion Rotation + Scale
         frame_transform_length = 3 + 4 + 3
@@ -260,27 +287,27 @@ class SupercellOdinGLTF:
         )
 
         # Animation input
-        animation_input_index = len(self.json["accessors"])
-        animation_input_buffer = BinaryReader()
+        animation_input_index = len(self._data["accessors"])
+        animation_input_buffer = ByteWriter()
         for i in range(keyframes_count):
             animation_input_buffer.write_float(frame_spf * i)
-        self.json["accessors"].append(
+        self._data["accessors"].append(
             {
-                "bufferView": len(self.json["bufferViews"]),
+                "bufferView": len(self._data["bufferViews"]),
                 "componentType": 5126,
                 "count": keyframes_count,
                 "type": "SCALAR",
             }
         )
         buffer_view = BufferView()
-        buffer_view.data = bytes(animation_input_buffer.buffer())
-        self.buffers.append(buffer_view)
+        buffer_view.data = bytes(animation_input_buffer.buffer)
+        self._buffers.append(buffer_view)
 
         # Animation Transform
         animation_buffers_indices: list[tuple[int, int, int]] = []
-        animation_transform_buffers: list[
-            list[BinaryReader, BinaryReader, BinaryReader]
-        ] = [[BinaryReader() for _ in range(3)] for _ in used_nodes]
+        animation_transform_buffers: list[tuple[ByteWriter, ByteWriter, ByteWriter]] = [
+            (ByteWriter(), ByteWriter(), ByteWriter()) for _ in used_nodes
+        ]
         for node_index in range(len(used_nodes)):
             for frame_index in range(keyframes_count):
                 # print(node_index)
@@ -300,11 +327,11 @@ class SupercellOdinGLTF:
 
         for buffer in animation_transform_buffers:
             translation, rotation, scale = buffer
-            base_accessor_index = len(self.json["accessors"])
-            base_bufferView_index = len(self.buffers)
+            base_accessor_index = len(self._data["accessors"])
+            base_bufferView_index = len(self._buffers)
 
             # Translation
-            self.json["accessors"].append(
+            self._data["accessors"].append(
                 {
                     "bufferView": base_bufferView_index,
                     "componentType": 5126,
@@ -313,11 +340,11 @@ class SupercellOdinGLTF:
                 }
             )
             translation_buffer_view = BufferView()
-            translation_buffer_view.data = bytes(translation.buffer())
-            self.buffers.append(translation_buffer_view)
+            translation_buffer_view.data = bytes(translation.buffer)
+            self._buffers.append(translation_buffer_view)
 
             # Rotation
-            self.json["accessors"].append(
+            self._data["accessors"].append(
                 {
                     "bufferView": base_bufferView_index + 1,
                     "componentType": 5126,
@@ -326,11 +353,11 @@ class SupercellOdinGLTF:
                 }
             )
             rotation_buffer_view = BufferView()
-            rotation_buffer_view.data = bytes(rotation.buffer())
-            self.buffers.append(rotation_buffer_view)
+            rotation_buffer_view.data = bytes(rotation.buffer)
+            self._buffers.append(rotation_buffer_view)
 
             # Scale
-            self.json["accessors"].append(
+            self._data["accessors"].append(
                 {
                     "bufferView": base_bufferView_index + 2,
                     "componentType": 5126,
@@ -339,11 +366,11 @@ class SupercellOdinGLTF:
                 }
             )
             scale_buffer_view = BufferView()
-            scale_buffer_view.data = bytes(scale.buffer())
-            self.buffers.append(scale_buffer_view)
+            scale_buffer_view.data = bytes(scale.buffer)
+            self._buffers.append(scale_buffer_view)
 
             animation_buffers_indices.append(
-                [base_accessor_index, base_accessor_index + 1, base_accessor_index + 2]
+                (base_accessor_index, base_accessor_index + 1, base_accessor_index + 2)
             )
 
         # Animation channels
@@ -391,24 +418,24 @@ class SupercellOdinGLTF:
             }
         )
 
-        self.json["animations"] = animations
+        self._data["animations"] = animations
 
         self.process_animation_skin(used_nodes)
 
     def process_animation_skin(self, nodes: list[int]) -> None:
-        skins: list[dict] = self.json.get("skins", [])
+        skins: list[dict] = self._data.get("skins", [])
 
         for skin in skins:
             joints: list[int] = skin["joints"]
-            if all(joints, nodes):
+            if all(joints):  # FIXME
                 return
 
         new_skin_joints: list[int] = []
 
         def add_skin_joint(idx: int):
-            node = self.json["nodes"][idx]
-            childrens = node.get("children", [])
-            for children in childrens:
+            node = self._data["nodes"][idx]
+            children = node.get("children", [])
+            for children in children:
                 add_skin_joint(children)
             if idx not in new_skin_joints:
                 new_skin_joints.append(idx)
@@ -417,66 +444,67 @@ class SupercellOdinGLTF:
             add_skin_joint(node)
 
         skins.append({"joints": new_skin_joints})
-        self.json["skins"] = skins
+        self._data["skins"] = skins
 
-    def calculate_odin_positions_count(self, accessor: dict) -> int:
+    def calculate_odin_position_count(self, accessor: dict) -> int:
         array = self.decode_accessor_obj(accessor)
         max_index = np.max(array)
         return max_index + 1
 
     def initialize_odin(self) -> None:
-        extensions: dict = self.json.get("extensions")
+        extensions: dict = self._data.get("extensions")
         odin = extensions.pop("SC_odin_format")
-        self.odin_buffer_index = odin["bufferView"]
+        self._odin_buffer_index = odin["bufferView"]
+        self._mesh_descriptors = odin.get("meshDataInfos", [])
 
         if "materials" in odin:
-            self.json["materials"] = odin["materials"]
+            self._data["materials"] = odin["materials"]
 
         if "animation" in odin:
             self.process_animation(odin["animation"])
 
-        if "extensionsUsed" not in self.json:
-            self.json["extensionsUsed"] = []
-        self.json["extensionsUsed"].extend(SupercellOdinGLTF.UsedExtensions)
+        if "extensionsUsed" not in self._data:
+            self._data["extensionsUsed"] = []
+        self._data["extensionsUsed"].extend(SupercellOdinGLTF.used_extensions)
 
-        if "extensionsRequired" not in self.json:
-            self.json["extensionsRequired"] = []
-        self.json["extensionsRequired"].extend(SupercellOdinGLTF.RequiredExtensions)
+        if "extensionsRequired" not in self._data:
+            self._data["extensionsRequired"] = []
+        self._data["extensionsRequired"].extend(SupercellOdinGLTF.required_extensions)
 
-    def save_buffers(self) -> bytes:
-        stream = BinaryReader()
+    def _serialize_buffers(self) -> bytes:
+        stream = ByteWriter()
 
         buffers: list[dict] = []
-        bufferView: list[dict] = []
+        buffer_view: list[dict] = []
 
-        for buffer in self.buffers:
-            buffer.offset = stream.pos()
-            bufferView.append(buffer.serialize())
+        for buffer in self._buffers:
+            buffer.offset = stream.position()
+            buffer_view.append(buffer.serialize())
 
-            stream.write_bytes(buffer.data)
-            stream.pad(-len(buffer.data) % 16)
+            stream.write(buffer.data)
+            stream.write(b"\0" * ((len(buffer.data) + 15) & ~15))
 
-        buffers.append({"byteLength": len(stream.buffer())})
+        buffers.append({"byteLength": len(stream.buffer)})
 
-        self.json["buffers"] = buffers
-        self.json["bufferViews"] = bufferView
+        self._data["buffers"] = buffers
+        self._data["bufferViews"] = buffer_view
 
-        return bytes(stream.buffer())
+        return bytes(stream.buffer)
 
-    def produce_buffers(self, data: bytes) -> None:
-        if "buffers" not in self.json:
+    def _produce_buffers(self, data: bytes) -> None:
+        if "buffers" not in self._data:
             return
 
-        if "bufferViews" not in self.json:
+        if "bufferViews" not in self._data:
             return
 
-        buffers: list[dict] = self.json["buffers"]
-        bufferViews: list[dict] = self.json["bufferViews"]
+        buffers: list[dict] = self._data["buffers"]
+        buffer_views: list[dict] = self._data["bufferViews"]
         assert len(buffers) == 1
 
-        stream = BinaryReader(data)
+        stream = ByteReader(data)
 
-        for bufferView in bufferViews:
+        for bufferView in buffer_views:
             buffer_index = bufferView.get("buffer")
             assert buffer_index == 0
 
@@ -484,23 +512,18 @@ class SupercellOdinGLTF:
             length = bufferView.get("byteLength")
 
             stream.seek(offset)
-            data = stream.read_bytes(length)
+            data = stream.read(length)
 
             buffer = BufferView()
             buffer.stride = bufferView.get("byteStride", None)
             buffer.data = data
-            self.buffers.append(buffer)
+            self._buffers.append(buffer)
 
-    def save(self) -> glTF:
-        data = self.save_buffers()
-
-        file = glTF()
-        json = SupercellOdinGLTF("JSON", self.json)
-        binary = glTF_Chunk("BIN\0", data)
-        file.chunks.append(json)
-        file.chunks.append(binary)
-
-        return file
+    def save(self) -> GlTF:
+        return GlTF(
+            Chunk(JSON_CHUNK_TYPE, orjson.dumps(self._data)),
+            Chunk(BIN_CHUNK_TYPE, self._serialize_buffers()),
+        )
 
     # https://github.com/KhronosGroup/glTF-Blender-IO/blob/da2172c284cd0576e3a63234ea893f9b4edcacca/addons/io_scene_gltf2/io/imp/gltf2_io_binary.py#L123
     def decode_accessor_obj(self, accessor: dict) -> np.array:
@@ -513,14 +536,14 @@ class SupercellOdinGLTF:
 
         buffer_view_index = accessor.get("bufferView")
         if buffer_view_index is not None:
-            bufferView = self.json["bufferViews"][buffer_view_index]
-            buffer_data = self.buffers[buffer_view_index].data
+            buffer_view = self._data["bufferViews"][buffer_view_index]
+            buffer_data = self._buffers[buffer_view_index].data
 
             accessor_offset = accessor.get("byteOffset") or 0
 
             bytes_per_elem = dtype(1).nbytes
             default_stride = bytes_per_elem * component_nb
-            stride = bufferView.get("byteStride") or default_stride
+            stride = buffer_view.get("byteStride") or default_stride
 
             if stride == default_stride:
                 array = np.frombuffer(
@@ -530,7 +553,6 @@ class SupercellOdinGLTF:
                     offset=accessor_offset,
                 )
                 array = array.reshape(accessor.get("count"), component_nb)
-
             else:
                 # The data looks like
                 #   XXXppXXXppXXXppXXX
@@ -538,7 +560,7 @@ class SupercellOdinGLTF:
                 # One XXXpp group is one stride's worth of data.
                 assert stride % bytes_per_elem == 0
                 elems_per_stride = stride // bytes_per_elem
-                num_elems = (accessor.count - 1) * elems_per_stride + component_nb
+                num_elems = (accessor["count"] - 1) * elems_per_stride + component_nb
 
                 array = np.frombuffer(
                     buffer_data,
@@ -548,23 +570,22 @@ class SupercellOdinGLTF:
                 assert array.strides[0] == bytes_per_elem
                 array = np.lib.stride_tricks.as_strided(
                     array,
-                    shape=(accessor.count, component_nb),
+                    shape=(accessor["count"], component_nb),
                     strides=(stride, bytes_per_elem),
                 )
-
         else:
             # No buffer view; initialize to zeros
             array = np.zeros((accessor.get("count"), component_nb), dtype=dtype)
 
         # Normalization
         if accessor.get("normalized"):
-            if accessor.component_type == 5120:  # int8
+            if accessor["componentType"] == 5120:  # int8
                 array = np.maximum(-1.0, array / 127.0)
-            elif accessor.component_type == 5121:  # uint8
+            elif accessor["componentType"] == 5121:  # uint8
                 array = array / 255.0
-            elif accessor.component_type == 5122:  # int16
+            elif accessor["componentType"] == 5122:  # int16
                 array = np.maximum(-1.0, array / 32767.0)
-            elif accessor.component_type == 5123:  # uint16
+            elif accessor["componentType"] == 5123:  # uint16
                 array = array / 65535.0
 
             array = array.astype(np.float32, copy=False)
