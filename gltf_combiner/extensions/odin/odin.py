@@ -479,11 +479,11 @@ class SupercellOdinGLTF:
         buffer_view: list[dict] = []
 
         for buffer in self._buffers:
-            buffer.offset = stream.position()
+            buffer.offset = stream.position
             buffer_view.append(buffer.serialize())
 
             stream.write(buffer.data)
-            stream.write(b"\0" * ((len(buffer.data) + 15) & ~15))
+            stream.write(b"\0" * ((len(buffer.data) + 15) & ~15))  # padding
 
         buffers.append({"byteLength": len(stream.buffer)})
 

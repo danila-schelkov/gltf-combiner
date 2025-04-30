@@ -12,7 +12,13 @@ class ByteWriter:
     def write(self, value: bytes) -> None:
         self._buffer += value
 
-    def write_u_int64(self, integer: int) -> None:
+    def write_double(self, value: float) -> None:
+        self.write(pack(f"{self._endian_sign}d", value))
+
+    def write_float(self, value: float) -> None:
+        self.write(pack(f"{self._endian_sign}f", value))
+
+    def write_u_int64(self, integer: int):
         self.write(pack(f"{self._endian_sign}Q", integer))
 
     def write_int64(self, integer: int) -> None:
@@ -45,3 +51,7 @@ class ByteWriter:
     @property
     def buffer(self) -> bytes:
         return self._buffer
+
+    @property
+    def position(self):
+        return len(self._buffer)
