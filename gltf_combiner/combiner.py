@@ -1,4 +1,5 @@
 import os
+from typing import Any
 
 import orjson
 
@@ -6,7 +7,7 @@ from gltf_combiner.extensions.flatbuffer import deserialize_glb_json
 from gltf_combiner.gltf.chunk import Chunk
 from gltf_combiner.gltf.exceptions import (
     AnimationNotFoundException,
-    AllAnimationChannelsDeletedException
+    AllAnimationChannelsDeletedException,
 )
 from gltf_combiner.gltf.gltf import GlTF
 from gltf_combiner.streams import ByteReader, ByteWriter
@@ -277,8 +278,11 @@ def _update_animations(
             channel["target"]["node"] = nodes_mapping[channel["target"]["node"]]
 
 
-def _join_dictionaries(geometry_json: dict, animation_json: dict) -> dict:
-    joined_dict = dict(**geometry_json)
+def _join_dictionaries(
+    geometry_json: dict[str, Any], animation_json: dict[str, Any]
+) -> dict:
+    # TODO: check if deepcopy needed
+    joined_dict: dict[str, Any] = dict(**geometry_json)
 
     for key, value in animation_json.items():
         if isinstance(value, list):

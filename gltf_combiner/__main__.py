@@ -1,29 +1,40 @@
 import os
 import re
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from gltf_combiner import build_combined_gltf
 from gltf_combiner.gltf.exceptions import (
     AnimationNotFoundException,
-    AllAnimationChannelsDeletedException
+    AllAnimationChannelsDeletedException,
 )
 
 RESOURCES_PATH = Path("resources")
 COMBINED_PATH = Path("combined")
 
 
-def _collect_files_info(input_directory: Path, extension="glb") -> list:
-    files = [
-        {"filename": file, "animation_files": []}
+@dataclass
+class AnimatedFile:
+    filename: str
+    animation_files: list[str] = field(default_factory=list)
+
+
+def _collect_files_info(input_directory: Path, extension="glb") -> list[AnimatedFile]:
+    """
+    Collects info about models and their animations if model name ends with `_geo`
+    and animation names end with `_anim`, where `anim` is an animation name.
+    """
+
+    animated_files = [
+        AnimatedFile(file)
         for file in os.listdir(input_directory)
         if os.path.isfile(input_directory / file)
     ]
 
     animations = []
 
-    for file_index, file in enumerate(files):
-        file = files[file_index]
-        filename = file["filename"]
+    for file_index, file in enumerate(animated_files):
+        filename = file.filename
 
         if filename in animations:
             continue
@@ -39,7 +50,9 @@ def _collect_files_info(input_directory: Path, extension="glb") -> list:
                 match_basename = os.path.splitext(match)[0]
 
                 if match_basename.endswith("_geo"):
-                    pattern = re.compile(f"{match_basename[:-4]}.*(?!_geo).{extension}")
+                    pattern = re.compile(
+                        f"{match_basename[:-4]}.*(?!_geo)\.{extension}"
+                    )
                     another_matches = list(
                         filter(pattern.match, os.listdir(input_directory))
                     )
@@ -52,11 +65,13 @@ def _collect_files_info(input_directory: Path, extension="glb") -> list:
             if len(matches) >= 1:
                 animations.extend(matches)
 
-                files[file_index]["animation_files"] = matches
+                file.animation_files.extend(matches)
 
-    files = [file for file in files if file["filename"] not in animations]
+    animated_files = [
+        file for file in animated_files if file.filename not in animations
+    ]
 
-    return files
+    return animated_files
 
 
 def main() -> None:
@@ -67,16 +82,15 @@ def main() -> None:
 
     collected_files = _collect_files_info(input_directory)
     for file_info in collected_files:
-        if len(file_info["animation_files"]) == 0:
+        if len(file_info.animation_files) == 0:
             continue
 
-        filename = file_info["filename"]
-        print(f"Working with {filename}...")
+        print(f"Working with {file_info.filename}...")
 
-        for animation_filename in file_info["animation_files"]:
+        for animation_filename in file_info.animation_files:
             try:
                 gltf = build_combined_gltf(
-                    input_directory / filename,
+                    input_directory / file_info.filename,
                     input_directory / animation_filename,
                     fix_texcoords=True,
                 )
