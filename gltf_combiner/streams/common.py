@@ -7,4 +7,4 @@ def get_endian_sign(endian: Literal["big", "little"]) -> Literal[">", "<"]:
     elif endian == "little":
         return "<"
 
-    raise NotImplemented(f"Unknown endian requested: {endian}")
+    raise NotImplementedError(f"Unknown endian requested: {endian}")

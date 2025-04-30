@@ -3,7 +3,7 @@ from io import BytesIO
 from typing import Self
 
 from gltf_combiner.gltf.chunk import Chunk
-from gltf_combiner.gltf.exceptions import WrongFileException
+from gltf_combiner.gltf.exceptions.wrong_file_exception import WrongFileException
 
 GLTF_HEADER_SIZE = 12
 
@@ -27,27 +27,27 @@ def is_at_end(buffer: BytesIO) -> bool:
 
 
 class GlTF:
-    def __init__(self, chunks: list[Chunk] | None = None):
+    def __init__(self, *chunks: Chunk):
         self._file_read_buffer = BytesIO()
         self._file_write_buffer = BytesIO()
 
-        if chunks is None:
-            chunks = []
+        self._chunks: list[Chunk] = list(chunks)
 
-        self._chunks: list[Chunk] = chunks
+    @staticmethod
+    def parse(filepath: os.PathLike | str) -> "GlTF":
+        gltf = GlTF()
 
-    def parse(self, filepath: os.PathLike | str) -> Self:
         file_data = get_file_data(filepath)
         file_length = len(file_data)
-        self._file_read_buffer = BytesIO(file_data)
+        gltf._file_read_buffer = BytesIO(file_data)
 
-        if self._validate(file_length):
+        if gltf._validate(file_length):
             raise WrongFileException("File is not validated!")
 
-        self._chunks = self._parse_chunks()
-        assert is_at_end(self._file_read_buffer), "Cannot parse whole file."
+        gltf._chunks = gltf._parse_chunks()
+        assert is_at_end(gltf._file_read_buffer), "Cannot parse whole file."
 
-        return self
+        return gltf
 
     def write(self, filepath: os.PathLike | str) -> Self:
         self._file_write_buffer = BytesIO()
@@ -66,10 +66,7 @@ class GlTF:
 
         return self
 
-    def get_chunk_by_type(self, chunk_type: str | bytes) -> Chunk | None:
-        if isinstance(chunk_type, str):
-            chunk_type = chunk_type.encode()
-
+    def get_chunk_by_type(self, chunk_type: bytes) -> Chunk | None:
         for chunk in self._chunks:
             if chunk.type == chunk_type:
                 return chunk

@@ -4,15 +4,14 @@ from enum import IntEnum
 from flatbuffers import flexbuffers, Builder
 from flatbuffers.compat import import_numpy
 
+from gltf_combiner.extensions.flatbuffer.common import pascal_case
+from gltf_combiner.extensions.flatbuffer.schema import gltf_schema
 from .generated import glTF_generated as flat
 
 np = import_numpy()
 
-from .common import pascal_case
-from .schema import gltf_schema
 
-
-def _serialize_gather(builder: Builder, class_name: str, gather: dict) -> any:
+def serialize_gather(builder: Builder, class_name: str, gather: dict) -> any:
     """
     A place where dark magic happens.
     Serializes a dictionary `gather` into a flatbuffer using the
@@ -37,28 +36,26 @@ def _serialize_gather(builder: Builder, class_name: str, gather: dict) -> any:
     return end_function(builder)
 
 
-def _serialize_array(
+def serialize_array(
     builder: Builder, data: list, schema: any, class_name: str, key: str
 ) -> int or list:
-    if schema == int:
+    if schema is int:
         array = np.array(data, dtype=np.int32)
         return builder.CreateNumpyVector(array)
-
-    elif schema == float:
+    elif schema is float:
         array = np.array(data, dtype=np.float32)
         return builder.CreateNumpyVector(array)
-
-    elif isinstance(schema, dict) or schema == str:
+    elif isinstance(schema, dict) or schema is str:
         objects = []
 
         for element in data:
             if element is None:
                 continue
 
-            if schema == str:
+            if schema is str:
                 objects.append(builder.CreateString(element))
             else:
-                objects.append(_serialize_flatbuffer(builder, element, schema))
+                objects.append(serialize_flatbuffer(builder, element, schema))
 
         object_count = len(objects)
         if object_count == 0:
@@ -72,7 +69,7 @@ def _serialize_array(
         return builder.EndVector()
 
 
-def _serialize_flatbuffer(builder: Builder, data: dict, schema: dict) -> any:
+def serialize_flatbuffer(builder: Builder, data: dict, schema: dict) -> any:
     gather = {}
 
     class_name = schema.get("_type").__name__
@@ -94,26 +91,26 @@ def _serialize_flatbuffer(builder: Builder, data: dict, schema: dict) -> any:
             continue
 
         # Simple Types
-        if value_type == int or value_type == float or value_type == bool:
+        if value_type is int or value_type is float or value_type is bool:
             gather[key_getter] = key_data
 
         # Strings
-        if value_type == str:
+        if value_type is str:
             gather[key_getter] = builder.CreateString(key_data)
 
         # FlexBuffers
-        elif value_type == bytes:
+        elif value_type is bytes:
             gather[key_getter] = builder.CreateByteVector(flexbuffers.Dumps(key_data))
 
         # Array Of Objects
         elif isinstance(value_type, list):
-            gather[key_getter] = _serialize_array(
+            gather[key_getter] = serialize_array(
                 builder, key_data, schema[key][0], class_name, key_getter
             )
 
         # Structs
         elif isinstance(value_type, dict):
-            gather[key_getter] = _serialize_flatbuffer(builder, key_data, schema[key])
+            gather[key_getter] = serialize_flatbuffer(builder, key_data, schema[key])
 
         # String-Enum
         elif issubclass(value_type, IntEnum):
@@ -122,13 +119,13 @@ def _serialize_flatbuffer(builder: Builder, data: dict, schema: dict) -> any:
                 continue
             gather[key_getter] = enum_data.value
 
-    return _serialize_gather(builder, class_name, gather)
+    return serialize_gather(builder, class_name, gather)
 
 
 def serialize_glb_json(data: dict) -> bytes:
     flatbuffer = Builder()
 
-    root = _serialize_flatbuffer(flatbuffer, data, gltf_schema)
+    root = serialize_flatbuffer(flatbuffer, data, gltf_schema)
 
     flatbuffer.Finish(root)
     return bytes(flatbuffer.Output())
