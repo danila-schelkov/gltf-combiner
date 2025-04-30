@@ -73,7 +73,7 @@ def main() -> None:
         for animation_filename in file_info["animation_files"]:
             try:
                 gltf = build_combined_gltf(
-                    input_directory / filename, input_directory / animation_filename
+                    input_directory / filename, input_directory / animation_filename, fix_texcoords=True
                 )
             except AnimationNotFoundException:
                 print(f"No animation in the file {animation_filename!r}. File Skipped!")

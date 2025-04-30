@@ -14,8 +14,14 @@ class ByteReader:
     def seek(self, position: int) -> None:
         self._internal_reader.seek(position)
 
+    def tell(self) -> int:
+        return self._internal_reader.tell()
+
     def read(self, size: int) -> bytes:
         return self._internal_reader.read(size)
+
+    def read_all_bytes(self) -> bytes:
+        return self._internal_reader.read()
 
     def read_u_int64(self) -> int:
         return unpack(f"{self._endian_sign}Q", self.read(8))[0]
