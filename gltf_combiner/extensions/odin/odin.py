@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+
 import numpy as np
 import orjson
 
@@ -5,25 +7,20 @@ from gltf_combiner.streams import ByteReader, ByteWriter
 
 from ...gltf import BIN_CHUNK_TYPE, FLATBUFFER_CHUNK_TYPE, JSON_CHUNK_TYPE, Chunk, GlTF
 from ..flatbuffer import deserialize_glb_json
-from .gltf_constants import ComponentType, DataType
+from .attribute_format import OdinAttributeFormat
+from .attribute_type import OdinAttributeType
+from .gltf_component_type import ComponentType
+from .gltf_data_type import DataType
 from .odin_attribute import OdinAttribute
-from .odin_constants import OdinAttributeFormat, OdinAttributeType
-
-## Exclusive Accessor Component Types
-# 1 - Float Vector 3
-# 2 - Float Vector 4
-# 3 - Matrix4x4
-# Idk what sense of modifying component type
-# Maybe it more like GPU hint or smth like this
 
 
+@dataclass
 class BufferView:
-    def __init__(self) -> None:
-        self.stride: int | None = None
-        self.offset: int | None = None
-        self.data: bytes = b""
+    stride: int | None = None
+    offset: int | None = None
+    data: bytes = b""
 
-    def serialize(self):
+    def serialize(self) -> dict[str, int]:
         data = {
             "buffer": 0,
             "byteOffset": self.offset,
@@ -51,6 +48,7 @@ class SupercellOdinGLTF:
         self._buffers: list[BufferView] = []
         self._odin_buffer_index: int = -1
         self._mesh_descriptors: list[dict] = []
+        self._processed_mesh_descriptors: dict[int, dict] = {}
 
         json_chunk = gltf.get_chunk_by_type(JSON_CHUNK_TYPE)
         flatbuffer_chunk = gltf.get_chunk_by_type(FLATBUFFER_CHUNK_TYPE)
@@ -165,8 +163,52 @@ class SupercellOdinGLTF:
 
             extensions.pop("SC_odin_format")
 
+    def _create_primitive_cache(self, meshes: list[dict]) -> None:
+        vertex_count = {}
+        descriptors = {}
+
+        for mesh in meshes:
+            primitives = mesh.get("primitives")
+            if primitives is None:
+                continue
+
+            for primitive in primitives:
+                extensions: dict = primitive.get("extensions", {})
+                if "SC_odin_format" not in extensions:
+                    continue
+
+                odin: dict = extensions["SC_odin_format"]
+                indices = primitive.get("indices")
+                count = self.calculate_odin_position_count(
+                    self._data["accessors"][indices]
+                )
+
+                info_index = odin.get("meshDataInfoIndex")
+                mesh_descriptor = (
+                    odin
+                    if "vertexDescriptors" in odin
+                    else self._mesh_descriptors[info_index]
+                )
+                vertex_descriptors: list[dict] = mesh_descriptor["vertexDescriptors"]
+
+                if info_index not in descriptors:
+                    descriptors[info_index] = vertex_descriptors
+
+                # TODO: Maybe sum?
+                vertex_count[info_index] = max(vertex_count.get(info_index, 0), count)
+
+        for idx, vertex_descriptors in descriptors.items():
+            attributes = {}
+            for descriptor in vertex_descriptors:
+                self._process_odin_primitive_descriptor(
+                    descriptor, attributes, vertex_count[idx]
+                )
+
+            self._processed_mesh_descriptors[idx] = attributes
+
     def process_meshes(self) -> None:
         meshes: list[dict] = self._data.get("meshes", [])
+        self._create_primitive_cache(meshes)
 
         for mesh in meshes:
             extensions: dict = mesh.get("extensions", {})
@@ -178,9 +220,9 @@ class SupercellOdinGLTF:
                 continue
 
             for primitive in primitives:
-                self.process_mesh_primitive(primitive)
+                self._process_mesh_primitive(primitive)
 
-    def process_mesh_primitive(self, primitive: dict) -> None:
+    def _process_mesh_primitive(self, primitive: dict) -> None:
         extensions: dict = primitive.get("extensions", {})
         if "SC_odin_format" not in extensions:
             return
@@ -189,20 +231,23 @@ class SupercellOdinGLTF:
         indices = primitive.get("indices")
         count = self.calculate_odin_position_count(self._data["accessors"][indices])
 
+        info_index = odin.get("meshDataInfoIndex")
         mesh_descriptor = (
-            odin
-            if "vertexDescriptors" in odin
-            else self._mesh_descriptors[odin["meshDataInfoIndex"]]
+            odin if "vertexDescriptors" in odin else self._mesh_descriptors[info_index]
         )
         vertex_descriptors: list[dict] = mesh_descriptor["vertexDescriptors"]
 
-        attributes = {}
-        for descriptor in vertex_descriptors:
-            self.process_odin_primitive_descriptor(descriptor, attributes, count)
+        if info_index in self._processed_mesh_descriptors:
+            attributes = self._processed_mesh_descriptors[info_index]
+        else:
+            attributes = {}
+            for descriptor in vertex_descriptors:
+                self._process_odin_primitive_descriptor(descriptor, attributes, count)
+            self._processed_mesh_descriptors[info_index] = attributes
 
         primitive["attributes"] = attributes
 
-    def process_odin_primitive_descriptor(
+    def _process_odin_primitive_descriptor(
         self, descriptor: dict, attributes: dict, positions_count: int
     ):
         attribute_descriptor: list[OdinAttribute] = []
@@ -215,11 +260,11 @@ class SupercellOdinGLTF:
         for i, attribute in enumerate(descriptor["attributes"]):
             attribute_type_index = attribute["index"]
             attribute_format_index = attribute["format"]
-            if attribute_type_index not in list(OdinAttributeType):
+            if attribute_type_index not in OdinAttributeType:
                 print(f'Unknown attribute name "{attribute.get("name")}". Skip...')
                 continue
 
-            if attribute_format_index not in list(OdinAttributeFormat):
+            if attribute_format_index not in OdinAttributeFormat:
                 print(
                     f'Unknown format "{attribute_format_index}" in attribute "{attribute.get("name")}". Skip...'
                 )
@@ -227,7 +272,7 @@ class SupercellOdinGLTF:
 
             attribute_type = OdinAttributeType(attribute_type_index)
             attribute_format = OdinAttributeFormat(attribute_format_index)
-            is_integer = attribute["interpretAsInteger"]
+            is_integer = attribute.get("interpretAsInteger", False)
             attribute = OdinAttribute(
                 attribute_type, attribute_format, attribute["offset"]
             )
@@ -239,17 +284,23 @@ class SupercellOdinGLTF:
                 )
             )
             attribute_descriptor.append(attribute)
-            attribute_accessors.append(
-                {
-                    "bufferView": len(self._buffers) + i,
-                    "componentType": OdinAttributeFormat.to_accessor_component(
-                        attribute_format
-                    ),
-                    "normalized": not is_integer,
-                    "count": int(positions_count),
-                    "type": OdinAttributeFormat.to_accessor_type(attribute_format),
-                }
-            )
+            accessor = {
+                "bufferView": len(self._buffers) + i,
+                "componentType": OdinAttributeFormat.to_accessor_component(
+                    attribute_format
+                ),
+                "count": int(positions_count),
+                "type": OdinAttributeFormat.to_accessor_type(attribute_format),
+            }
+
+            if is_integer is not None:
+                accessor["normalized"] = not is_integer
+            else:
+                accessor["normalized"] = OdinAttributeFormat.is_normalized(
+                    attribute_format
+                )
+
+            attribute_accessors.append(accessor)
 
         mesh_buffer = self._buffers[self._odin_buffer_index].data
         for tris_idx in range(positions_count):
@@ -271,9 +322,23 @@ class SupercellOdinGLTF:
     def process_animation(self, animation: dict) -> None:
         animations = self._data.get("animations", [])
 
-        frame_rate = animation["frameRate"]
+        frame_rate = animation.get("frameRate") or 30
         frame_spf = 1.0 / frame_rate
-        keyframes_count = animation["keyframeCount"]
+        keyframes_count = animation.get("keyframesCount") or 1
+        nodes_per_keyframe = animation.get("nodesNumberPerKeyframe")
+        individual_keyframes_count = animation.get("keyframeCounts")
+        if individual_keyframes_count:
+            individual_keyframes_count = [
+                num
+                for i, num in enumerate(individual_keyframes_count)
+                for _ in range(nodes_per_keyframe[i])
+            ]
+
+        keyframes_total = (
+            sum(individual_keyframes_count)
+            if individual_keyframes_count
+            else keyframes_count
+        )
         used_nodes = animation["nodes"]
         odin_animation_accessor = animation["accessor"]
 
@@ -282,36 +347,63 @@ class SupercellOdinGLTF:
         )
         # Position + Quaternion Rotation + Scale
         frame_transform_length = 3 + 4 + 3
-        animation_transform_array = np.reshape(
-            animation_transform_array,
-            (len(used_nodes), keyframes_count, frame_transform_length),
-        )
+        if individual_keyframes_count:
+            animation_transform_array = np.reshape(
+                animation_transform_array, (keyframes_total, frame_transform_length)
+            )
+            animation_transform_array = np.split(
+                animation_transform_array, np.cumsum(individual_keyframes_count)[:-1]
+            )
+        else:
+            animation_transform_array = np.reshape(
+                animation_transform_array,
+                (len(used_nodes), keyframes_count, frame_transform_length),
+            )
 
         # Animation input
-        animation_input_index = len(self._data["accessors"])
-        animation_input_buffer = ByteWriter()
-        for i in range(keyframes_count):
-            animation_input_buffer.write_float(frame_spf * i)
-        self._data["accessors"].append(
-            {
-                "bufferView": len(self._data["bufferViews"]),
-                "componentType": 5126,
-                "count": keyframes_count,
-                "type": "SCALAR",
-            }
-        )
-        buffer_view = BufferView()
-        buffer_view.data = bytes(animation_input_buffer.buffer)
-        self._buffers.append(buffer_view)
+        animation_input_index = None
+        individual_input_index = None
+
+        def create_input_buffer(count: int) -> int:
+            result = len(self._data["accessors"])
+            animation_input_buffer = ByteWriter()
+            for i in range(count):
+                animation_input_buffer.write_float(frame_spf * i)
+            self._data["accessors"].append(
+                {
+                    "bufferView": len(self._buffers),
+                    "componentType": 5126,
+                    "count": count,
+                    "type": "SCALAR",
+                }
+            )
+            buffer_view = BufferView()
+            buffer_view.data = bytes(animation_input_buffer.buffer)
+            self._buffers.append(buffer_view)
+            return result
+
+        if individual_keyframes_count:
+            individual_input_index = {num: 0 for num in individual_keyframes_count}
+
+            for num in individual_input_index.keys():
+                individual_input_index[num] = create_input_buffer(num)
+
+        else:
+            animation_input_index = create_input_buffer(keyframes_count)
 
         # Animation Transform
         animation_buffers_indices: list[tuple[int, int, int]] = []
         animation_transform_buffers: list[tuple[ByteWriter, ByteWriter, ByteWriter]] = [
             (ByteWriter(), ByteWriter(), ByteWriter()) for _ in used_nodes
         ]
+
         for node_index in range(len(used_nodes)):
-            for frame_index in range(keyframes_count):
-                # print(node_index)
+            node_keyframes = (
+                individual_keyframes_count[node_index]
+                if individual_keyframes_count
+                else keyframes_count
+            )
+            for frame_index in range(node_keyframes):
                 translation, rotation, scale = animation_transform_buffers[node_index]
                 t, r, s = np.array_split(
                     animation_transform_array[node_index][frame_index], [3, 7]
@@ -326,48 +418,53 @@ class SupercellOdinGLTF:
                 for value in s:
                     scale.write_float(value)
 
-        for buffer in animation_transform_buffers:
+        for idx, buffer in enumerate(animation_transform_buffers):
             translation, rotation, scale = buffer
             base_accessor_index = len(self._data["accessors"])
-            base_bufferView_index = len(self._buffers)
+            base_buffer_view_index = len(self._buffers)
+            node_keyframes = (
+                individual_keyframes_count[idx]
+                if individual_keyframes_count
+                else keyframes_count
+            )
 
             # Translation
             self._data["accessors"].append(
                 {
-                    "bufferView": base_bufferView_index,
-                    "componentType": 5126,
-                    "count": keyframes_count,
+                    "bufferView": base_buffer_view_index,
+                    "componentType": ComponentType.Float,
+                    "count": node_keyframes,
                     "type": "VEC3",
                 }
             )
             translation_buffer_view = BufferView()
-            translation_buffer_view.data = bytes(translation.buffer)
+            translation_buffer_view.data = translation.buffer
             self._buffers.append(translation_buffer_view)
 
             # Rotation
             self._data["accessors"].append(
                 {
-                    "bufferView": base_bufferView_index + 1,
-                    "componentType": 5126,
-                    "count": keyframes_count,
+                    "bufferView": base_buffer_view_index + 1,
+                    "componentType": ComponentType.Float,
+                    "count": node_keyframes,
                     "type": "VEC4",
                 }
             )
             rotation_buffer_view = BufferView()
-            rotation_buffer_view.data = bytes(rotation.buffer)
+            rotation_buffer_view.data = rotation.buffer
             self._buffers.append(rotation_buffer_view)
 
             # Scale
             self._data["accessors"].append(
                 {
-                    "bufferView": base_bufferView_index + 2,
-                    "componentType": 5126,
-                    "count": keyframes_count,
+                    "bufferView": base_buffer_view_index + 2,
+                    "componentType": ComponentType.Float,
+                    "count": node_keyframes,
                     "type": "VEC3",
                 }
             )
             scale_buffer_view = BufferView()
-            scale_buffer_view.data = bytes(scale.buffer)
+            scale_buffer_view.data = scale.buffer
             self._buffers.append(scale_buffer_view)
 
             animation_buffers_indices.append(
@@ -380,6 +477,12 @@ class SupercellOdinGLTF:
         for node_number, node_index in enumerate(used_nodes):
             translation, rotation, scale = animation_buffers_indices[node_number]
 
+            input_index = (
+                individual_input_index[individual_keyframes_count[node_number]]
+                if individual_keyframes_count
+                else animation_input_index
+            )
+
             # Translation
             animation_channels.append(
                 {
@@ -387,9 +490,7 @@ class SupercellOdinGLTF:
                     "target": {"node": node_index, "path": "translation"},
                 }
             )
-            animation_samplers.append(
-                {"input": animation_input_index, "output": translation}
-            )
+            animation_samplers.append({"input": input_index, "output": translation})
 
             # Rotation
             animation_channels.append(
@@ -398,9 +499,7 @@ class SupercellOdinGLTF:
                     "target": {"node": node_index, "path": "rotation"},
                 }
             )
-            animation_samplers.append(
-                {"input": animation_input_index, "output": rotation}
-            )
+            animation_samplers.append({"input": input_index, "output": rotation})
 
             # Scale
             animation_channels.append(
@@ -409,7 +508,7 @@ class SupercellOdinGLTF:
                     "target": {"node": node_index, "path": "scale"},
                 }
             )
-            animation_samplers.append({"input": animation_input_index, "output": scale})
+            animation_samplers.append({"input": input_index, "output": scale})
 
         animations.append(
             {
@@ -428,21 +527,21 @@ class SupercellOdinGLTF:
 
         for skin in skins:
             joints: list[int] = skin["joints"]
-            if all(joints):  # FIXME
+            if all(joints) and all(nodes):
                 return
 
         new_skin_joints: list[int] = []
 
-        def add_skin_joint(idx: int):
-            node = self._data["nodes"][idx]
+        def add_skin_joint(index: int):
+            node = self._data["nodes"][index]
             children = node.get("children", [])
             for children in children:
                 add_skin_joint(children)
-            if idx not in new_skin_joints:
-                new_skin_joints.append(idx)
+            if index not in new_skin_joints:
+                new_skin_joints.append(index)
 
-        for node in nodes:
-            add_skin_joint(node)
+        for node_index in nodes:
+            add_skin_joint(node_index)
 
         skins.append({"joints": new_skin_joints})
         self._data["skins"] = skins
@@ -464,13 +563,19 @@ class SupercellOdinGLTF:
         if "animation" in odin:
             self.process_animation(odin["animation"])
 
-        if "extensionsUsed" not in self._data:
-            self._data["extensionsUsed"] = []
-        self._data["extensionsUsed"].extend(SupercellOdinGLTF.used_extensions)
+        extensions_used = self._data.get("extensionsUsed", [])
+        extensions_used.extend(SupercellOdinGLTF.used_extensions)
+        if extensions_used:
+            self._data["extensionsUsed"] = extensions_used
+        else:
+            del self._data["extensionsUsed"]
 
-        if "extensionsRequired" not in self._data:
-            self._data["extensionsRequired"] = []
-        self._data["extensionsRequired"].extend(SupercellOdinGLTF.required_extensions)
+        extensions_required = self._data.get("extensionsRequired", [])
+        extensions_required.extend(SupercellOdinGLTF.required_extensions)
+        if extensions_required:
+            self._data["extensionsRequired"] = extensions_required
+        else:
+            del self._data["extensionsRequired"]
 
     def _serialize_buffers(self) -> bytes:
         stream = ByteWriter()
@@ -532,7 +637,7 @@ class SupercellOdinGLTF:
         # doesn't matter because nothing uses them.
         assert accessor.get("type") not in ["MAT2", "MAT3"]
 
-        dtype = ComponentType.to_numpy_dtype(accessor.get("componentType"))
+        dtype = ComponentType(accessor.get("componentType")).to_numpy_dtype()
         component_nb = DataType.num_elements(accessor.get("type"))
 
         buffer_view_index = accessor.get("bufferView")

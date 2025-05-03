@@ -1,6 +1,7 @@
 import numpy as np
 
-from .odin_constants import OdinAttributeFormat, OdinAttributeType
+from gltf_combiner.extensions.odin.attribute_format import OdinAttributeFormat
+from gltf_combiner.extensions.odin.attribute_type import OdinAttributeType
 
 
 class OdinAttribute:
