@@ -1,11 +1,12 @@
 # ! ---------------- Serializing ----------------
 from enum import IntEnum
 
-from flatbuffers import flexbuffers, Builder
+from flatbuffers import Builder, flexbuffers
 from flatbuffers.compat import import_numpy
 
 from gltf_combiner.extensions.flatbuffer.common import pascal_case
 from gltf_combiner.extensions.flatbuffer.schema import gltf_schema
+
 from .generated import glTF_generated as flat
 
 np = import_numpy()
@@ -18,8 +19,9 @@ def serialize_gather(builder: Builder, class_name: str, gather: dict) -> any:
     provided `Builder` and class.
 
     :param builder: File builder
-    :param class_name: Class name
-    :param gather: dictionary containing gathered data to be serialized. The
+    :param class_name: The `cls` parameter is the class object that we want to serialize. It is of type `any`,
+    which means it can be any class object
+    :param gather: The `gather` parameter is a dictionary that contains gathered data to be serialized. The
     keys of the dictionary represent the fields or attributes of the object, and the values represent
     the corresponding values of those fields
     :return: the result of calling the `EndObject` function on the `builder` object.
