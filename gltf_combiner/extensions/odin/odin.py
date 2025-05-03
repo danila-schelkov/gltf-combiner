@@ -3,10 +3,9 @@ from dataclasses import dataclass
 import numpy as np
 import orjson
 
-from gltf_combiner.streams import ByteReader, ByteWriter
-
 from ...gltf import BIN_CHUNK_TYPE, FLATBUFFER_CHUNK_TYPE, JSON_CHUNK_TYPE, Chunk, GlTF
-from ..flatbuffer import deserialize_glb_json
+from ...streams import ByteReader, ByteWriter
+from .. import deserialize_glb_json
 from .attribute_format import OdinAttributeFormat
 from .attribute_type import OdinAttributeType
 from .gltf_component_type import ComponentType
@@ -45,14 +44,8 @@ class SupercellOdinGLTF:
     ]
 
     def __init__(self, gltf: GlTF) -> None:
-        self._buffers: list[BufferView] = []
-        self._odin_buffer_index: int = -1
-        self._mesh_descriptors: list[dict] = []
-        self._processed_mesh_descriptors: dict[int, dict] = {}
-
         json_chunk = gltf.get_chunk_by_type(JSON_CHUNK_TYPE)
         flatbuffer_chunk = gltf.get_chunk_by_type(FLATBUFFER_CHUNK_TYPE)
-
         # Checking info chunks
         assert json_chunk is not None or flatbuffer_chunk is not None
 
@@ -64,8 +57,10 @@ class SupercellOdinGLTF:
 
         bin_chunk = gltf.get_chunk_by_type(BIN_CHUNK_TYPE)
 
-        # Checking data chunks
-        assert bin_chunk is not None
+        self._buffers: list[BufferView] = []
+        self._odin_buffer_index: int = -1
+        self._mesh_descriptors: list[dict] = []
+        self._cached_mesh_descriptors: dict = {}
 
         self._produce_buffers(bin_chunk.data)
 
@@ -89,7 +84,7 @@ class SupercellOdinGLTF:
 
         if has_odin:
             self.initialize_odin()
-            self.process_meshes()
+            self._process_meshes()
 
         return self.save()
 
@@ -136,17 +131,17 @@ class SupercellOdinGLTF:
 
         children: dict[int, list[int]] = {}
 
-        def add_child(index: int, parent_index: int):
-            if parent_index not in children:
-                children[parent_index] = []
-            children[parent_index].append(index)
+        def add_child(idx: int, parent_idx: int):
+            if parent_idx not in children:
+                children[parent_idx] = []
+            children[parent_idx].append(idx)
 
         for i, node in enumerate(nodes):
             extensions: dict = node.get("extensions", {})
             if "SC_odin_format" not in extensions:
                 continue
 
-            odin: dict[str, int] = extensions.pop("SC_odin_format")
+            odin: dict = extensions.pop("SC_odin_format")
             parent = odin.get("parent")
             add_child(i, parent)
 
@@ -194,8 +189,10 @@ class SupercellOdinGLTF:
                 if info_index not in descriptors:
                     descriptors[info_index] = vertex_descriptors
 
-                # TODO: Maybe sum?
-                vertex_count[info_index] = max(vertex_count.get(info_index, 0), count)
+                if info_index in vertex_count:
+                    vertex_count[info_index] = max(vertex_count[info_index], count)
+                else:
+                    vertex_count[info_index] = count
 
         for idx, vertex_descriptors in descriptors.items():
             attributes = {}
@@ -204,9 +201,9 @@ class SupercellOdinGLTF:
                     descriptor, attributes, vertex_count[idx]
                 )
 
-            self._processed_mesh_descriptors[idx] = attributes
+            self._cached_mesh_descriptors[idx] = attributes
 
-    def process_meshes(self) -> None:
+    def _process_meshes(self) -> None:
         meshes: list[dict] = self._data.get("meshes", [])
         self._create_primitive_cache(meshes)
 
@@ -227,7 +224,7 @@ class SupercellOdinGLTF:
         if "SC_odin_format" not in extensions:
             return
 
-        odin = extensions.pop("SC_odin_format")
+        odin: dict = extensions.pop("SC_odin_format")
         indices = primitive.get("indices")
         count = self.calculate_odin_position_count(self._data["accessors"][indices])
 
@@ -237,13 +234,13 @@ class SupercellOdinGLTF:
         )
         vertex_descriptors: list[dict] = mesh_descriptor["vertexDescriptors"]
 
-        if info_index in self._processed_mesh_descriptors:
-            attributes = self._processed_mesh_descriptors[info_index]
+        if info_index in self._cached_mesh_descriptors:
+            attributes = self._cached_mesh_descriptors[info_index]
         else:
             attributes = {}
             for descriptor in vertex_descriptors:
                 self._process_odin_primitive_descriptor(descriptor, attributes, count)
-            self._processed_mesh_descriptors[info_index] = attributes
+            self._cached_mesh_descriptors[info_index] = attributes
 
         primitive["attributes"] = attributes
 
@@ -272,7 +269,7 @@ class SupercellOdinGLTF:
 
             attribute_type = OdinAttributeType(attribute_type_index)
             attribute_format = OdinAttributeFormat(attribute_format_index)
-            is_integer = attribute.get("interpretAsInteger", False)
+            is_integer = attribute.get("interpretAsInteger")
             attribute = OdinAttribute(
                 attribute_type, attribute_format, attribute["offset"]
             )
@@ -366,7 +363,7 @@ class SupercellOdinGLTF:
 
         def create_input_buffer(count: int) -> int:
             result = len(self._data["accessors"])
-            animation_input_buffer = ByteWriter()
+            animation_input_buffer = ByteWriter("little")
             for i in range(count):
                 animation_input_buffer.write_float(frame_spf * i)
             self._data["accessors"].append(
@@ -378,7 +375,7 @@ class SupercellOdinGLTF:
                 }
             )
             buffer_view = BufferView()
-            buffer_view.data = bytes(animation_input_buffer.buffer)
+            buffer_view.data = animation_input_buffer.buffer
             self._buffers.append(buffer_view)
             return result
 
@@ -394,7 +391,8 @@ class SupercellOdinGLTF:
         # Animation Transform
         animation_buffers_indices: list[tuple[int, int, int]] = []
         animation_transform_buffers: list[tuple[ByteWriter, ByteWriter, ByteWriter]] = [
-            (ByteWriter(), ByteWriter(), ByteWriter()) for _ in used_nodes
+            (ByteWriter("little"), ByteWriter("little"), ByteWriter("little"))
+            for _ in used_nodes
         ]
 
         for node_index in range(len(used_nodes)):
@@ -432,7 +430,7 @@ class SupercellOdinGLTF:
             self._data["accessors"].append(
                 {
                     "bufferView": base_buffer_view_index,
-                    "componentType": ComponentType.Float,
+                    "componentType": 5126,
                     "count": node_keyframes,
                     "type": "VEC3",
                 }
@@ -445,7 +443,7 @@ class SupercellOdinGLTF:
             self._data["accessors"].append(
                 {
                     "bufferView": base_buffer_view_index + 1,
-                    "componentType": ComponentType.Float,
+                    "componentType": 5126,
                     "count": node_keyframes,
                     "type": "VEC4",
                 }
@@ -458,7 +456,7 @@ class SupercellOdinGLTF:
             self._data["accessors"].append(
                 {
                     "bufferView": base_buffer_view_index + 2,
-                    "componentType": ComponentType.Float,
+                    "componentType": 5126,
                     "count": node_keyframes,
                     "type": "VEC3",
                 }
@@ -532,16 +530,16 @@ class SupercellOdinGLTF:
 
         new_skin_joints: list[int] = []
 
-        def add_skin_joint(index: int):
-            node = self._data["nodes"][index]
-            children = node.get("children", [])
-            for children in children:
+        def add_skin_joint(idx: int):
+            node = self._data["nodes"][idx]
+            childrens = node.get("children", [])
+            for children in childrens:
                 add_skin_joint(children)
-            if index not in new_skin_joints:
-                new_skin_joints.append(index)
+            if idx not in new_skin_joints:
+                new_skin_joints.append(idx)
 
-        for node_index in nodes:
-            add_skin_joint(node_index)
+        for node in nodes:
+            add_skin_joint(node)
 
         skins.append({"joints": new_skin_joints})
         self._data["skins"] = skins
@@ -553,7 +551,7 @@ class SupercellOdinGLTF:
 
     def initialize_odin(self) -> None:
         extensions: dict = self._data.get("extensions")
-        odin = extensions.pop("SC_odin_format")
+        odin: dict = extensions.pop("SC_odin_format")
         self._odin_buffer_index = odin["bufferView"]
         self._mesh_descriptors = odin.get("meshDataInfos", [])
 
@@ -577,8 +575,8 @@ class SupercellOdinGLTF:
         else:
             del self._data["extensionsRequired"]
 
-    def _serialize_buffers(self) -> bytes:
-        stream = ByteWriter()
+    def save_buffers(self) -> bytes:
+        stream = ByteWriter("little")
 
         buffers: list[dict] = []
         buffer_view: list[dict] = []
@@ -588,14 +586,14 @@ class SupercellOdinGLTF:
             buffer_view.append(buffer.serialize())
 
             stream.write(buffer.data)
-            stream.write(b"\0" * ((len(buffer.data) + 15) & ~15))  # padding
+            stream.write(b"\0" * (-len(buffer.data) % 16))
 
         buffers.append({"byteLength": len(stream.buffer)})
 
         self._data["buffers"] = buffers
         self._data["bufferViews"] = buffer_view
 
-        return bytes(stream.buffer)
+        return stream.buffer
 
     def _produce_buffers(self, data: bytes) -> None:
         if "buffers" not in self._data:
@@ -608,27 +606,29 @@ class SupercellOdinGLTF:
         buffer_views: list[dict] = self._data["bufferViews"]
         assert len(buffers) == 1
 
-        stream = ByteReader(data)
+        stream = ByteReader(data, "little")
 
-        for bufferView in buffer_views:
-            buffer_index = bufferView.get("buffer")
+        for buffer_view in buffer_views:
+            buffer_index = buffer_view.get("buffer")
             assert buffer_index == 0
 
-            offset = bufferView.get("byteOffset", 0)
-            length = bufferView.get("byteLength")
+            offset = buffer_view.get("byteOffset", 0)
+            length = buffer_view.get("byteLength")
 
             stream.seek(offset)
             data = stream.read(length)
 
             buffer = BufferView()
-            buffer.stride = bufferView.get("byteStride", None)
+            buffer.stride = buffer_view.get("byteStride", None)
             buffer.data = data
             self._buffers.append(buffer)
 
     def save(self) -> GlTF:
+        data = self.save_buffers()
+
         return GlTF(
             Chunk(JSON_CHUNK_TYPE, orjson.dumps(self._data)),
-            Chunk(BIN_CHUNK_TYPE, self._serialize_buffers()),
+            Chunk(BIN_CHUNK_TYPE, data),
         )
 
     # https://github.com/KhronosGroup/glTF-Blender-IO/blob/da2172c284cd0576e3a63234ea893f9b4edcacca/addons/io_scene_gltf2/io/imp/gltf2_io_binary.py#L123
@@ -637,7 +637,7 @@ class SupercellOdinGLTF:
         # doesn't matter because nothing uses them.
         assert accessor.get("type") not in ["MAT2", "MAT3"]
 
-        dtype = ComponentType(accessor.get("componentType")).to_numpy_dtype()
+        dtype = ComponentType.to_numpy_dtype(accessor.get("componentType"))
         component_nb = DataType.num_elements(accessor.get("type"))
 
         buffer_view_index = accessor.get("bufferView")
@@ -679,19 +679,20 @@ class SupercellOdinGLTF:
                     shape=(accessor["count"], component_nb),
                     strides=(stride, bytes_per_elem),
                 )
+
         else:
             # No buffer view; initialize to zeros
             array = np.zeros((accessor.get("count"), component_nb), dtype=dtype)
 
         # Normalization
         if accessor.get("normalized"):
-            if accessor["componentType"] == 5120:  # int8
+            if accessor["component_type"] == 5120:  # int8
                 array = np.maximum(-1.0, array / 127.0)
-            elif accessor["componentType"] == 5121:  # uint8
+            elif accessor["component_type"] == 5121:  # uint8
                 array = array / 255.0
-            elif accessor["componentType"] == 5122:  # int16
+            elif accessor["component_type"] == 5122:  # int16
                 array = np.maximum(-1.0, array / 32767.0)
-            elif accessor["componentType"] == 5123:  # uint16
+            elif accessor["component_type"] == 5123:  # uint16
                 array = array / 65535.0
 
             array = array.astype(np.float32, copy=False)

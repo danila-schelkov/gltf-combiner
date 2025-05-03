@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "gltf-combiner"
-version = "0.1.6"
+version = "0.1.7"
 description = ""
 authors = ["Danila <crowo4ka@gmail.com>"]
 readme = "README.md"

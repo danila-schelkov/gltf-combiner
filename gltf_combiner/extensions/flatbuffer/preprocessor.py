@@ -12,6 +12,7 @@ class Preprocessor:
         :type data: any
         :return: Preprocessed data
         """
+
         if isinstance(data, list):
             if len(data) == 0:
                 return None
@@ -37,6 +38,7 @@ class Preprocessor:
         :param data: The parameter `data` is a list of values that need to be preprocessed
         :return: preprocessed list.
         """
+
         result = []
 
         for value in data:
@@ -59,6 +61,7 @@ class Preprocessor:
         :type data: dict
         :return: Preprocessed dictionary.
         """
+
         result = OrderedDict()
 
         for key, value in data.items():

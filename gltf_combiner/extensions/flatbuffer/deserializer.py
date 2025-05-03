@@ -4,10 +4,10 @@ from enum import IntEnum
 from flatbuffers import flexbuffers
 from flatbuffers.compat import import_numpy
 
-from ..flatbuffer.common import pascal_case
-from ..flatbuffer.generated.glTF_generated import Root
-from ..flatbuffer.preprocessor import Preprocessor
-from ..flatbuffer.schema import gltf_schema
+from .common import pascal_case
+from .generated.glTF_generated import Root
+from .preprocessor import Preprocessor
+from .schema import gltf_schema
 
 np = import_numpy()
 
@@ -19,14 +19,14 @@ def deserialize_string(data: bytes | None) -> str | None:
     return data.decode("utf8")
 
 
-def deserialize_flexbuffer(data) -> any:
+def deserialize_flexbuffer(data: np.ndarray) -> any:
     if isinstance(data, int) and data == 0:
         return None
 
     data_array = bytearray(data)
     try:
         return flexbuffers.Loads(data_array)
-    except:
+    except Exception:
         pass
 
 
@@ -67,21 +67,17 @@ def deserialize_flatbuffer(buffer: any, schema: dict) -> dict:
         # Numbers & Booleans | Simple Types
         if value_type is int or value_type is bool or value_type is float:
             value_data = getattr(buffer, getter_key)()
-
         # Strings
         elif value_type is str:
             value_data = deserialize_string(getattr(buffer, getter_key)())
-
         # FlexBuffers
         elif value_type is bytes:
             value_data = deserialize_flexbuffer(
                 getattr(buffer, f"{getter_key}AsNumpy")()
             )
-
         # Array Of Objects
         elif isinstance(value_type, list):
             value_data = deserialize_array(buffer, getter_key, value_type[0])
-
         # Structs
         elif isinstance(value_type, dict):
             struct_buffer = getattr(buffer, getter_key)()
