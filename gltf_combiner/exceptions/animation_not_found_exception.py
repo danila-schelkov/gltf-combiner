@@ -1,0 +1,2 @@
+class AnimationNotFoundException(Exception):
+    pass

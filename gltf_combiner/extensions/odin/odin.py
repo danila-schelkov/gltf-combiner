@@ -3,7 +3,8 @@ from dataclasses import dataclass
 import numpy as np
 import orjson
 
-from ...gltf import BIN_CHUNK_TYPE, FLATBUFFER_CHUNK_TYPE, JSON_CHUNK_TYPE, Chunk, GlTF
+from gltf import BIN_CHUNK_TYPE, FLATBUFFER_CHUNK_TYPE, JSON_CHUNK_TYPE, Chunk, GlTF
+
 from ...streams import ByteReader, ByteWriter
 from .. import deserialize_glb_json
 from .attribute_format import OdinAttributeFormat
@@ -321,9 +322,14 @@ class SupercellOdinGLTF:
 
         frame_rate = animation.get("frameRate") or 30
         frame_spf = 1.0 / frame_rate
-        keyframes_count = animation.get("keyframesCount") or 1
+        keyframes_count = (
+            animation.get("keyframesCount") or animation.get("keyframeCount") or 1
+        )
         nodes_per_keyframe = animation.get("nodesNumberPerKeyframe")
         individual_keyframes_count = animation.get("keyframeCounts")
+        used_nodes = animation.get("nodes")
+        odin_animation_accessor = animation.get("accessor")
+        node_indices = None
         if individual_keyframes_count:
             individual_keyframes_count = [
                 num
@@ -331,34 +337,221 @@ class SupercellOdinGLTF:
                 for _ in range(nodes_per_keyframe[i])
             ]
 
-        keyframes_total = (
-            sum(individual_keyframes_count)
-            if individual_keyframes_count
-            else keyframes_count
-        )
-        used_nodes = animation["nodes"]
-        odin_animation_accessor = animation["accessor"]
+        # Usual nodes
+        if used_nodes is not None and odin_animation_accessor is not None:
+            keyframes_total = (
+                sum(individual_keyframes_count)
+                if individual_keyframes_count
+                else keyframes_count
+            )
+            used_nodes = animation["nodes"]
+            odin_animation_accessor = animation["accessor"]
 
-        animation_transform_array = self.decode_accessor_obj(
-            self._data["accessors"][odin_animation_accessor]
-        )
-        # Position + Quaternion Rotation + Scale
-        frame_transform_length = 3 + 4 + 3
-        if individual_keyframes_count:
-            animation_transform_array = np.reshape(
-                animation_transform_array, (keyframes_total, frame_transform_length)
+            animation_transform_array = self.decode_accessor_obj(
+                self._data["accessors"][odin_animation_accessor]
             )
-            animation_transform_array = np.split(
-                animation_transform_array, np.cumsum(individual_keyframes_count)[:-1]
-            )
+
+            # Position + Quaternion Rotation + Scale
+            frame_transform_length = 3 + 4 + 3
+            if individual_keyframes_count:
+                animation_transform_array = np.reshape(
+                    animation_transform_array, (keyframes_total, frame_transform_length)
+                )
+                animation_transform_array = np.split(
+                    animation_transform_array,
+                    np.cumsum(individual_keyframes_count)[:-1],
+                )
+            else:
+                animation_transform_array = np.reshape(
+                    animation_transform_array,
+                    (len(used_nodes), keyframes_count, frame_transform_length),
+                )
+
+            def get_transform_from_raw_array(node_index, frame_index):
+                return np.array_split(
+                    animation_transform_array[node_index][frame_index], [3, 7]
+                )
+
+            get_transform_function = get_transform_from_raw_array
         else:
-            animation_transform_array = np.reshape(
-                animation_transform_array,
-                (len(used_nodes), keyframes_count, frame_transform_length),
+            packed = animation.get("packed")
+            nodes = packed.get("nodes")
+            data_accessor_idx = packed.get("dataAccessor")
+            node_accessor_idx = packed.get("nodeAccessor")
+            individual_keyframes_count = [node.get("frameCount") or 1 for node in nodes]
+
+            used_nodes = [node.get("nodeIndex") or 0 for node in nodes]
+
+            # Base transform values
+            node_base_data = self.decode_accessor_obj(
+                self._data["accessors"][node_accessor_idx]
             )
+
+            # Normalized transform values
+            normalized_transform_data = self.decode_accessor_obj(
+                self._data["accessors"][data_accessor_idx]
+            )
+            transform_index = 0
+
+            transform_buffer: list[
+                tuple[list[np.ndarray], list[np.ndarray], list[np.ndarray]]
+            ] = []
+
+            rotation_channels = 4
+            translation_channels = 3
+            scale_channels = 3
+            node_base_data_stride = 12
+
+            for node_index, node in enumerate(nodes):
+                flags = node.get("flags") or 0xFF
+                frame_count = node.get("frameCount")
+                node_base_data_offset = node_index * node_base_data_stride
+
+                has_frametime = flags & 1 != 0
+                has_rotation = flags & 2 != 0
+                has_translation = flags & 4 != 0
+                has_single_scale = flags & 8 != 0
+                has_scale = flags & 16 != 0
+
+                # Allocating memory buffers
+
+                # Base values
+                node_base_translation = [
+                    node_base_data[node_base_data_offset],
+                    node_base_data[node_base_data_offset + 1],
+                    node_base_data[node_base_data_offset + 2],
+                ]
+
+                node_base_rotation = [
+                    node_base_data[node_base_data_offset + 3],
+                    node_base_data[node_base_data_offset + 4],
+                    node_base_data[node_base_data_offset + 5],
+                    node_base_data[node_base_data_offset + 6],
+                ]
+
+                node_base_scale = [
+                    node_base_data[node_base_data_offset + 7],
+                    node_base_data[node_base_data_offset + 8],
+                    node_base_data[node_base_data_offset + 9],
+                ]
+
+                # Multiply values for translation and scale data
+                translation_multiplier = node_base_data[node_base_data_offset + 10]
+                scale_multiplier = node_base_data[node_base_data_offset + 11]
+
+                # Normalized
+                node_norm_rotation = [
+                    np.zeros((frame_count), dtype=np.int16)
+                    for _ in range(rotation_channels)
+                ]
+
+                node_norm_translation = [
+                    np.zeros((frame_count), dtype=np.int16)
+                    for _ in range(translation_channels)
+                ]
+
+                node_norm_scale = [
+                    np.zeros((frame_count), dtype=np.int16)
+                    for _ in range(scale_channels)
+                ]
+
+                # Final (Raw)
+                node_rotation = [
+                    np.zeros(frame_count, dtype=np.float32)
+                    for _ in range(rotation_channels)
+                ]
+
+                node_translation = [
+                    np.zeros(frame_count, dtype=np.float32)
+                    for _ in range(translation_channels)
+                ]
+
+                node_scale = [
+                    np.full(frame_count, 1, dtype=np.float32)
+                    for _ in range(scale_channels)
+                ]
+
+                # Step 1. Extracting normalized values from dataAccessor
+                for frame_index in range(frame_count):
+                    if has_frametime:
+                        # Skip for now. IDK why it exists at all
+                        value = normalized_transform_data[transform_index]
+                        transform_index += 1
+
+                    if has_rotation:
+                        for i in range(rotation_channels):
+                            node_norm_rotation[i][frame_index] = (
+                                normalized_transform_data[transform_index]
+                            )
+                            transform_index += 1
+
+                    if has_translation:
+                        for i in range(translation_channels):
+                            node_norm_translation[i][frame_index] = (
+                                normalized_transform_data[transform_index]
+                            )
+                            transform_index += 1
+
+                    if has_single_scale and has_scale:
+                        for i in range(scale_channels):
+                            node_norm_scale[i][frame_index] = normalized_transform_data[
+                                transform_index
+                            ]
+                            transform_index += 1
+                    elif has_single_scale:
+                        for i in range(1, scale_channels):
+                            node_norm_scale[i][frame_index] = normalized_transform_data[
+                                transform_index
+                            ]
+                            transform_index += 1
+
+                # Step 2. Denormalize values and filling buffers with values in raw view
+                for frame_index in range(frame_count):
+                    for i in range(translation_channels):
+                        value = float(node_base_translation[i])
+                        if has_translation:
+                            transform = (
+                                float(node_norm_translation[i][frame_index])
+                                * translation_multiplier
+                            )
+                            value += transform
+
+                        node_translation[i][frame_index] = value
+
+                    for i in range(rotation_channels):
+                        value = float(node_base_rotation[i])
+                        if has_rotation:
+                            value = float(node_norm_rotation[i][frame_index]) / 32767
+
+                        node_rotation[i][frame_index] = value
+
+                    for i in range(scale_channels):
+                        value = float(node_base_scale[i])
+                        if has_scale or has_single_scale:
+                            transform = (
+                                float(node_norm_scale[i][frame_index])
+                                * scale_multiplier
+                            )
+                            value += transform
+
+                        node_scale[i][frame_index] = value
+
+                transform_buffer.append((node_translation, node_rotation, node_scale))
+
+            def get_transform_from_packed_array(
+                node_index: int, frame_index: int
+            ) -> tuple[list[float], list[float], list[float]]:
+                translation, rotation, scale = transform_buffer[node_index]
+
+                return (
+                    [channel[frame_index] for channel in translation],
+                    [channel[frame_index] for channel in rotation],
+                    [channel[frame_index] for channel in scale],
+                )
+
+            get_transform_function = get_transform_from_packed_array
 
         # Animation input
-        animation_input_index = None
         individual_input_index = None
 
         def create_input_buffer(count: int) -> int:
@@ -384,7 +577,6 @@ class SupercellOdinGLTF:
 
             for num in individual_input_index.keys():
                 individual_input_index[num] = create_input_buffer(num)
-
         else:
             animation_input_index = create_input_buffer(keyframes_count)
 
@@ -403,9 +595,7 @@ class SupercellOdinGLTF:
             )
             for frame_index in range(node_keyframes):
                 translation, rotation, scale = animation_transform_buffers[node_index]
-                t, r, s = np.array_split(
-                    animation_transform_array[node_index][frame_index], [3, 7]
-                )
+                t, r, s = get_transform_function(node_index, frame_index)
 
                 for value in t:
                     translation.write_float(value)
@@ -473,6 +663,9 @@ class SupercellOdinGLTF:
         animation_channels: list[dict] = []
         animation_samplers: list[dict] = []
         for node_number, node_index in enumerate(used_nodes):
+            if node_indices is not None:
+                node_index = node_indices[node_index]
+
             translation, rotation, scale = animation_buffers_indices[node_number]
 
             input_index = (
