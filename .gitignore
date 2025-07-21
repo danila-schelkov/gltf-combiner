@@ -1,3 +1,12 @@
 # IntelliJ project files
 .idea/
 /*.iml
+
+# Python
+__pycache__
+*.py[oc]
+.ruff_cache
+.venv
+
+combined/
+resources/

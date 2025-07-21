@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Any
 
 import orjson
 
@@ -8,7 +9,7 @@ class Chunk:
     type: bytes
     data: bytes
 
-    def json(self) -> dict:
+    def json(self) -> dict[str, Any]:
         return orjson.loads(self.data)
 
     def __len__(self) -> int:

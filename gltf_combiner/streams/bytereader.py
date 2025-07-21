@@ -2,14 +2,14 @@ from io import BufferedReader, BytesIO
 from struct import unpack
 from typing import Literal
 
-from .common import get_endian_sign
+from .common import EndianSign, get_endian_sign
 
 
 class ByteReader:
     def __init__(self, initial_bytes: bytes, endian: Literal["big", "little"] = "big"):
         # noinspection PyTypeChecker
-        self._internal_reader = BufferedReader(BytesIO(initial_bytes))
-        self._endian_sign = get_endian_sign(endian)
+        self._internal_reader: BufferedReader = BufferedReader(BytesIO(initial_bytes))
+        self._endian_sign: EndianSign = get_endian_sign(endian)
 
     def seek(self, position: int) -> None:
         self._internal_reader.seek(position)

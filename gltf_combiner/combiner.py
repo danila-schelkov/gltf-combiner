@@ -23,8 +23,8 @@ JSON_SKIP_LIST = ("buffers", "skins", "nodes", "scenes", "meshes")
 
 
 def build_combined_gltf(
-    geometry_filepath: os.PathLike | str,
-    animation_filepath: os.PathLike | str,
+    geometry_filepath: os.PathLike[str] | str,
+    animation_filepath: os.PathLike[str] | str,
     *,
     fix_texcoords: bool = False,
 ) -> GlTF:
@@ -36,7 +36,7 @@ def build_combined_gltf(
     )
 
 
-def rebuild_gltf(filepath: os.PathLike | str) -> GlTF:
+def rebuild_gltf(filepath: os.PathLike[str] | str) -> GlTF:
     return SupercellOdinGLTF(GlTF.parse(filepath)).remove_odin()
 
 
