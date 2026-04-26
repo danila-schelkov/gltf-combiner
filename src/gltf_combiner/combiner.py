@@ -3,19 +3,13 @@ from typing import Any
 
 import orjson
 
-from gltf_combiner.extensions import SupercellOdinGLTF
-from gltf_combiner.extensions.flatbuffer.deserializer import deserialize_glb_json
-from gltf_combiner.gltf import (
-    BIN_CHUNK_TYPE,
-    FLATBUFFER_CHUNK_TYPE,
-    JSON_CHUNK_TYPE,
-    Chunk,
-    GlTF,
-)
-from gltf_combiner.gltf.exceptions import (
+from gltf import BIN_CHUNK_TYPE, FLATBUFFER_CHUNK_TYPE, JSON_CHUNK_TYPE, Chunk, GlTF
+from gltf.exceptions import (
     AllAnimationChannelsDeletedException,
     AnimationNotFoundException,
 )
+from gltf_combiner.extensions import SupercellOdinGLTF
+from gltf_combiner.extensions.flatbuffer.deserializer import deserialize_glb_json
 from gltf_combiner.streams import ByteReader, ByteWriter
 
 JSON_REPLACEMENT_LIST = ("textures", "images")

@@ -3,11 +3,11 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from gltf_combiner import build_combined_gltf, rebuild_gltf
-from gltf_combiner.gltf.exceptions import (
+from gltf.exceptions import (
     AllAnimationChannelsDeletedException,
     AnimationNotFoundException,
 )
+from gltf_combiner import build_combined_gltf, rebuild_gltf
 
 RESOURCES_PATH = Path("resources")
 COMBINED_PATH = Path("combined")

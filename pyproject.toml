@@ -25,12 +25,14 @@ dev = [
     "pre-commit>=4.2.0,<5",
 ]
 
+[project.scripts]
+gltf_combiner="gltf_combiner.__main__:main"
+
 [tool.uv]
 default-groups = "all"
 
 [tool.uv.build-backend]
 module-name = ["gltf_combiner"]
-module-root = ""
 
 [build-system]
 requires = ["uv_build>=0.10.0,<0.11.0"]
