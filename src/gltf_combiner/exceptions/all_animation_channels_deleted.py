@@ -1,0 +1,2 @@
+class AllAnimationChannelsDeletedException(Exception):
+    pass

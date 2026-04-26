@@ -2,31 +2,35 @@
 name = "gltf-combiner"
 version = "0.1.7"
 description = ""
+authors = [{ name = "Danila", email = "crowo4ka@gmail.com" }]
+requires-python = ">=3.11,<4"
 readme = "README.md"
-authors = [
-    { name = "Danila", email = "crowo4ka@gmail.com" },
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
 ]
-requires-python = ">=3.11"
 dependencies = [
-    "orjson>=3.10.18",
-    "flatbuffers>=25.2.10",
-    "numpy>=2.2.5",
+    "orjson==3.10.18",
+    "flatbuffers==25.2.10",
+    "numpy==2.2.5",
 ]
-
-[project.scripts]
-gltf_combiner = "gltf_combiner.__main__:main"
-
-[build-system]
-requires = ["setuptools>=61"]
-build-backend = "setuptools.build_meta"
-
-[tool.setuptools]
-packages = ["gltf", "gltf_combiner"]
 
 [dependency-groups]
 dev = [
-    "ruff>=0.11.7",
-    "pyright>=1.1.400",
-    "pre-commit>=4.2.0",
-    "setuptools>=80.9.0",
+    "ruff==0.11.7",
+    "pyright==1.1.400",
+    "pre-commit>=4.2.0,<5",
 ]
+
+[tool.uv]
+default-groups = "all"
+
+[tool.uv.build-backend]
+module-name = ["gltf_combiner", "gltf"]
+
+[build-system]
+requires = ["uv_build>=0.10.0,<0.11.0"]
+build-backend = "uv_build"
