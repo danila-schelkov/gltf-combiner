@@ -36,8 +36,32 @@ def build_combined_gltf(
     )
 
 
-def rebuild_gltf(filepath: os.PathLike | str) -> GlTF:
-    return SupercellOdinGLTF(GlTF.parse(filepath)).remove_odin()
+def rebuild_gltf(filepath: os.PathLike | str, *, fix_texcoords: bool) -> GlTF:
+    geometry_gltf = SupercellOdinGLTF(GlTF.parse(filepath)).remove_odin()
+
+    geometry_json_chunk = geometry_gltf.get_chunk_by_type(JSON_CHUNK_TYPE)
+    geometry_flatbuffer_chunk = geometry_gltf.get_chunk_by_type(FLATBUFFER_CHUNK_TYPE)
+    geometry_bin_chunk = geometry_gltf.get_chunk_by_type(BIN_CHUNK_TYPE)
+
+    # Checking info chunks
+    assert geometry_json_chunk is not None or geometry_flatbuffer_chunk is not None
+
+    # Checking data chunks
+    assert geometry_bin_chunk is not None
+
+    geometry_json = (
+        geometry_json_chunk.json()
+        if geometry_json_chunk is not None
+        else deserialize_glb_json(geometry_flatbuffer_chunk.data)
+    )
+
+    if fix_texcoords:
+        geometry_bin_chunk.data = _fix_texcoord(geometry_json, geometry_bin_chunk.data)
+
+    new_json_chunk = Chunk(JSON_CHUNK_TYPE, orjson.dumps(geometry_json))
+    new_bin_chunk = Chunk(BIN_CHUNK_TYPE, geometry_bin_chunk.data)
+
+    return GlTF(new_json_chunk, new_bin_chunk)
 
 
 def _build_combined_gltf(

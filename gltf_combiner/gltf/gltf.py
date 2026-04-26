@@ -3,7 +3,7 @@ from io import BytesIO
 from typing import Self
 
 from gltf_combiner.gltf.chunk import Chunk
-from gltf_combiner.gltf.exceptions.wrong_file_exception import WrongFileException
+from gltf_combiner.gltf.exceptions import WrongFileException
 
 GLTF_HEADER_SIZE = 12
 
