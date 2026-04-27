@@ -3,11 +3,11 @@ from dataclasses import dataclass
 import numpy as np
 import orjson
 
-from gltf import (BIN_CHUNK_TYPE, FLATBUFFER_CHUNK_TYPE, JSON_CHUNK_TYPE,
-                  Chunk, GlTF)
+from gltf import BIN_CHUNK_TYPE, FLATBUFFER_CHUNK_TYPE, JSON_CHUNK_TYPE, Chunk, GlTF
+from streams import ByteReader, ByteWriter
 
-from ...streams import ByteReader, ByteWriter
 from .. import deserialize_glb_json
+from .animation import create_reader
 from .attribute_format import OdinAttributeFormat
 from .attribute_type import OdinAttributeType
 from .gltf_component_type import ComponentType
@@ -255,8 +255,8 @@ class SupercellOdinGLTF:
         self, descriptor: dict, attributes: dict, positions_count: int
     ):
         attribute_descriptor: list[OdinAttribute] = []
-        attribute_buffers: list[np.array] = []
-        attribute_accessors: list[np.array] = []
+        attribute_buffers: list[np.ndarray] = []
+        attribute_accessors: list[dict] = []
 
         offset = descriptor["offset"]
         stride = descriptor["stride"]
@@ -294,15 +294,15 @@ class SupercellOdinGLTF:
                     attribute_format
                 ),
                 "count": int(positions_count),
-                "type": OdinAttributeFormat.to_accessor_type(attribute_format),
+                "type": attribute_format.to_accessor_type(),
             }
 
             if is_integer is not None:
                 accessor["normalized"] = not is_integer
             else:
-                accessor["normalized"] = OdinAttributeFormat.is_normalized(
-                    attribute_format
-                )
+                # TODO: investigate
+                # accessor["normalized"] = attribute_format.is_normalized()
+                accessor["normalized"] = attribute_type.is_normalized()
 
             attribute_accessors.append(accessor)
 
@@ -325,44 +325,8 @@ class SupercellOdinGLTF:
 
     def process_animation(self, animation: dict) -> None:
         animations = self._data.get("animations", [])
-
-        frame_rate = animation.get("frameRate") or 30
-        frame_spf = 1.0 / frame_rate
-        keyframes_count = animation.get("keyframesCount") or 1
-        nodes_per_keyframe = animation.get("nodesNumberPerKeyframe")
-        individual_keyframes_count = animation.get("keyframeCounts")
-        if individual_keyframes_count:
-            individual_keyframes_count = [
-                num
-                for i, num in enumerate(individual_keyframes_count)
-                for _ in range(nodes_per_keyframe[i])
-            ]
-
-        keyframes_total = (
-            sum(individual_keyframes_count)
-            if individual_keyframes_count
-            else keyframes_count
-        )
-        used_nodes = animation["nodes"]
-        odin_animation_accessor = animation["accessor"]
-
-        animation_transform_array = self.decode_accessor_obj(
-            self._data["accessors"][odin_animation_accessor]
-        )
-        # Position + Quaternion Rotation + Scale
-        frame_transform_length = 3 + 4 + 3
-        if individual_keyframes_count:
-            animation_transform_array = np.reshape(
-                animation_transform_array, (keyframes_total, frame_transform_length)
-            )
-            animation_transform_array = np.split(
-                animation_transform_array, np.cumsum(individual_keyframes_count)[:-1]
-            )
-        else:
-            animation_transform_array = np.reshape(
-                animation_transform_array,
-                (len(used_nodes), keyframes_count, frame_transform_length),
-            )
+        animation_reader = create_reader(self, animation)
+        animation_reader.read()
 
         # Animation input
         animation_input_index = None
@@ -372,7 +336,7 @@ class SupercellOdinGLTF:
             result = len(self._data["accessors"])
             animation_input_buffer = ByteWriter("little")
             for i in range(count):
-                animation_input_buffer.write_float(frame_spf * i)
+                animation_input_buffer.write_float(animation_reader.frame_spf * i)
             self._data["accessors"].append(
                 {
                     "bufferView": len(self._buffers),
@@ -386,33 +350,34 @@ class SupercellOdinGLTF:
             self._buffers.append(buffer_view)
             return result
 
-        if individual_keyframes_count:
-            individual_input_index = {num: 0 for num in individual_keyframes_count}
+        if animation_reader.keyframe_mapping:
+            individual_input_index = {
+                num: 0 for num in animation_reader.keyframe_mapping
+            }
 
             for num in individual_input_index.keys():
                 individual_input_index[num] = create_input_buffer(num)
 
         else:
-            animation_input_index = create_input_buffer(keyframes_count)
+            animation_input_index = create_input_buffer(animation_reader.keyframe_count)
 
         # Animation Transform
         animation_buffers_indices: list[tuple[int, int, int]] = []
         animation_transform_buffers: list[tuple[ByteWriter, ByteWriter, ByteWriter]] = [
             (ByteWriter("little"), ByteWriter("little"), ByteWriter("little"))
-            for _ in used_nodes
+            for _ in animation_reader.used_nodes
         ]
 
-        for node_index in range(len(used_nodes)):
+        for node_index in range(len(animation_reader.used_nodes)):
             node_keyframes = (
-                individual_keyframes_count[node_index]
-                if individual_keyframes_count
-                else keyframes_count
+                animation_reader.keyframe_mapping[node_index]
+                if animation_reader.keyframe_mapping
+                else animation_reader.keyframe_count
             )
+
             for frame_index in range(node_keyframes):
                 translation, rotation, scale = animation_transform_buffers[node_index]
-                t, r, s = np.array_split(
-                    animation_transform_array[node_index][frame_index], [3, 7]
-                )
+                t, r, s = animation_reader.get_frame_data(node_index, frame_index)
 
                 for value in t:
                     translation.write_float(value)
@@ -426,17 +391,17 @@ class SupercellOdinGLTF:
         for idx, buffer in enumerate(animation_transform_buffers):
             translation, rotation, scale = buffer
             base_accessor_index = len(self._data["accessors"])
-            base_buffer_view_index = len(self._buffers)
+            base_bufferView_index = len(self._buffers)
             node_keyframes = (
-                individual_keyframes_count[idx]
-                if individual_keyframes_count
-                else keyframes_count
+                animation_reader.keyframe_mapping[idx]
+                if animation_reader.keyframe_mapping
+                else animation_reader.keyframe_count
             )
 
             # Translation
             self._data["accessors"].append(
                 {
-                    "bufferView": base_buffer_view_index,
+                    "bufferView": base_bufferView_index,
                     "componentType": 5126,
                     "count": node_keyframes,
                     "type": "VEC3",
@@ -449,7 +414,7 @@ class SupercellOdinGLTF:
             # Rotation
             self._data["accessors"].append(
                 {
-                    "bufferView": base_buffer_view_index + 1,
+                    "bufferView": base_bufferView_index + 1,
                     "componentType": 5126,
                     "count": node_keyframes,
                     "type": "VEC4",
@@ -462,7 +427,7 @@ class SupercellOdinGLTF:
             # Scale
             self._data["accessors"].append(
                 {
-                    "bufferView": base_buffer_view_index + 2,
+                    "bufferView": base_bufferView_index + 2,
                     "componentType": 5126,
                     "count": node_keyframes,
                     "type": "VEC3",
@@ -479,12 +444,12 @@ class SupercellOdinGLTF:
         # Animation channels
         animation_channels: list[dict] = []
         animation_samplers: list[dict] = []
-        for node_number, node_index in enumerate(used_nodes):
+        for node_number, node_index in enumerate(animation_reader.used_nodes):
             translation, rotation, scale = animation_buffers_indices[node_number]
 
             input_index = (
-                individual_input_index[individual_keyframes_count[node_number]]
-                if individual_keyframes_count
+                individual_input_index[animation_reader.keyframe_mapping[node_number]]
+                if animation_reader.keyframe_mapping
                 else animation_input_index
             )
 
@@ -525,7 +490,7 @@ class SupercellOdinGLTF:
 
         self._data["animations"] = animations
 
-        self.process_animation_skin(used_nodes)
+        self.process_animation_skin(animation_reader.used_nodes)
 
     def process_animation_skin(self, nodes: list[int]) -> None:
         skins: list[dict] = self._data.get("skins", [])
@@ -602,7 +567,7 @@ class SupercellOdinGLTF:
 
         return stream.buffer
 
-    def _produce_buffers(self, data: bytes) -> None:
+    def _produce_buffers(self, bin_data: bytes) -> None:
         if "buffers" not in self._data:
             return
 
@@ -613,7 +578,7 @@ class SupercellOdinGLTF:
         buffer_views: list[dict] = self._data["bufferViews"]
         assert len(buffers) == 1
 
-        stream = ByteReader(data, "little")
+        stream = ByteReader(bin_data, "little")
 
         for buffer_view in buffer_views:
             buffer_index = buffer_view.get("buffer")
@@ -621,6 +586,17 @@ class SupercellOdinGLTF:
 
             offset = buffer_view.get("byteOffset", 0)
             length = buffer_view.get("byteLength")
+
+            valid = True
+            if offset >= len(bin_data):
+                valid = False
+
+            if offset + length > len(bin_data):
+                valid = False
+
+            if not valid:
+                print(f"Skip buffer: {buffer_view}, {len(bin_data)}")
+                continue
 
             stream.seek(offset)
             data = stream.read(length)
@@ -638,8 +614,11 @@ class SupercellOdinGLTF:
             Chunk(BIN_CHUNK_TYPE, data),
         )
 
+    def decode_accessor(self, index: int) -> np.ndarray:
+        return self.decode_accessor_obj(self._data["accessors"][index])
+
     # https://github.com/KhronosGroup/glTF-Blender-IO/blob/da2172c284cd0576e3a63234ea893f9b4edcacca/addons/io_scene_gltf2/io/imp/gltf2_io_binary.py#L123
-    def decode_accessor_obj(self, accessor: dict) -> np.array:
+    def decode_accessor_obj(self, accessor: dict) -> np.ndarray:
         # MAT2/3 have special alignment requirements that aren't handled. But it
         # doesn't matter because nothing uses them.
         assert accessor.get("type") not in ["MAT2", "MAT3"]

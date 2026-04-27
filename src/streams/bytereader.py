@@ -2,7 +2,7 @@ from io import BufferedReader, BytesIO
 from struct import unpack
 from typing import Literal
 
-from .common import get_endian_sign
+from ._common import get_endian_sign
 
 
 class ByteReader:
