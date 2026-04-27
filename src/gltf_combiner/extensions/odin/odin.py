@@ -1,9 +1,12 @@
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 import orjson
 
-from gltf import BIN_CHUNK_TYPE, FLATBUFFER_CHUNK_TYPE, JSON_CHUNK_TYPE, Chunk, GlTF
+from gltf import (BIN_CHUNK_TYPE, FLATBUFFER_CHUNK_TYPE, JSON_CHUNK_TYPE,
+                  Chunk, GlTF)
 from streams import ByteReader, ByteWriter
 
 from .. import deserialize_glb_json
@@ -37,13 +40,13 @@ class BufferView:
 
 
 class SupercellOdinGLTF:
-    used_extensions = [
+    extensions_used: list[str] = [
         # "KHR_mesh_quantization",
         # "KHR_texture_transform",
         "SC_shader"
     ]
 
-    required_extensions = [
+    extensions_required: list[str] = [
         # "KHR_mesh_quantization"
     ]
 
@@ -55,7 +58,7 @@ class SupercellOdinGLTF:
             flatbuffer_chunk is not None and flatbuffer_chunk.data is not None
         )
 
-        self._data: dict = (
+        self._data: dict[str, Any] = (
             json_chunk.json()
             if json_chunk is not None
             else deserialize_glb_json(flatbuffer_chunk.data)
@@ -493,7 +496,7 @@ class SupercellOdinGLTF:
         self.process_animation_skin(animation_reader.used_nodes)
 
     def process_animation_skin(self, nodes: list[int]) -> None:
-        skins: list[dict] = self._data.get("skins", [])
+        skins: list[dict[str, Any]] = self._data.get("skins", [])
 
         for skin in skins:
             joints: list[int] = skin["joints"]
@@ -522,8 +525,8 @@ class SupercellOdinGLTF:
         return max_index + 1
 
     def initialize_odin(self) -> None:
-        extensions: dict = self._data.get("extensions")
-        odin: dict = extensions.pop("SC_odin_format")
+        extensions: dict[str, Any] = self._data.get("extensions")
+        odin: dict[str, Any] = extensions.pop("SC_odin_format")
         self._odin_buffer_index = odin["bufferView"]
         self._mesh_descriptors = odin.get("meshDataInfos", [])
 
@@ -533,15 +536,15 @@ class SupercellOdinGLTF:
         if "animation" in odin:
             self.process_animation(odin["animation"])
 
-        extensions_used = self._data.get("extensionsUsed", [])
-        extensions_used.extend(SupercellOdinGLTF.used_extensions)
+        extensions_used: list[str] = self._data.get("extensionsUsed", [])
+        extensions_used.extend(SupercellOdinGLTF.extensions_used)
         if extensions_used:
             self._data["extensionsUsed"] = extensions_used
         else:
             del self._data["extensionsUsed"]
 
-        extensions_required = self._data.get("extensionsRequired", [])
-        extensions_required.extend(SupercellOdinGLTF.required_extensions)
+        extensions_required: list[str] = self._data.get("extensionsRequired", [])
+        extensions_required.extend(SupercellOdinGLTF.extensions_required)
         if extensions_required:
             self._data["extensionsRequired"] = extensions_required
         else:
@@ -618,7 +621,7 @@ class SupercellOdinGLTF:
         return self.decode_accessor_obj(self._data["accessors"][index])
 
     # https://github.com/KhronosGroup/glTF-Blender-IO/blob/da2172c284cd0576e3a63234ea893f9b4edcacca/addons/io_scene_gltf2/io/imp/gltf2_io_binary.py#L123
-    def decode_accessor_obj(self, accessor: dict) -> np.ndarray:
+    def decode_accessor_obj(self, accessor: dict[str, Any]) -> npt.NDArray[np.number]:
         # MAT2/3 have special alignment requirements that aren't handled. But it
         # doesn't matter because nothing uses them.
         assert accessor.get("type") not in ["MAT2", "MAT3"]
@@ -668,19 +671,19 @@ class SupercellOdinGLTF:
 
         else:
             # No buffer view; initialize to zeros
-            array = np.zeros((accessor.get("count"), component_nb), dtype=dtype)
+            return np.zeros((accessor.get("count"), component_nb), dtype=dtype)
 
         # Normalization
         if accessor.get("normalized"):
             if accessor["component_type"] == 5120:  # int8
-                array = np.maximum(-1.0, array / 127.0)
+                array: npt.NDArray[np.float64] = np.maximum(-1.0, array / 127.0)
             elif accessor["component_type"] == 5121:  # uint8
-                array = array / 255.0
+                array: npt.NDArray[np.float64] = array / 255.0
             elif accessor["component_type"] == 5122:  # int16
-                array = np.maximum(-1.0, array / 32767.0)
+                array: npt.NDArray[np.float64] = np.maximum(-1.0, array / 32767.0)
             elif accessor["component_type"] == 5123:  # uint16
-                array = array / 65535.0
+                array: npt.NDArray[np.float64] = array / 65535.0
 
-            array = array.astype(np.float32, copy=False)
+            array: npt.NDArray[np.float32] = array.astype(np.float32, copy=False)
 
         return array
