@@ -1,7 +1,7 @@
 from struct import pack
 from typing import Literal
 
-from .common import get_endian_sign
+from ._common import get_endian_sign
 
 
 class ByteWriter:
@@ -50,7 +50,7 @@ class ByteWriter:
 
     @property
     def buffer(self) -> bytes:
-        return self._buffer
+        return bytes(self._buffer)
 
     @property
     def position(self):

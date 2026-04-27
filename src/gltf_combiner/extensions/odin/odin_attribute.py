@@ -1,7 +1,7 @@
 import numpy as np
 
-from gltf_combiner.extensions.odin.attribute_format import OdinAttributeFormat
-from gltf_combiner.extensions.odin.attribute_type import OdinAttributeType
+from .attribute_format import OdinAttributeFormat
+from .attribute_type import OdinAttributeType
 
 
 class OdinAttribute:
@@ -15,8 +15,9 @@ class OdinAttribute:
         self.format = attribute_format
         self.offset = offset
 
-        self._dtype = OdinAttributeFormat.to_numpy_dtype(self.format)
-        self._elements_count = OdinAttributeFormat.to_element_count(self.format)
+        self._dtype = self.format.to_numpy_dtype()
+        self._elements_count = self.format.to_element_count()
+        self._normalized = self.type.is_normalized()
 
     @property
     def data_type(self) -> np.dtype:
@@ -26,7 +27,7 @@ class OdinAttribute:
     def elements_count(self) -> int:
         return self._elements_count
 
-    def read(self, data: bytes, offset: int) -> np.array:
+    def read(self, data: bytes, offset: int) -> np.ndarray:
         match self.format:
             case OdinAttributeFormat.NormalizedWeightVector:
                 value = np.frombuffer(data, dtype=np.uint32, offset=offset, count=1)[0]
@@ -38,5 +39,9 @@ class OdinAttribute:
                 array = np.frombuffer(
                     data, dtype=self._dtype, offset=offset, count=self._elements_count
                 )
+
+        if self._normalized and np.issubdtype(self._dtype, np.integer):
+            info = np.iinfo(self._dtype)
+            array = array.astype(np.float32) / info.max
 
         return array

@@ -1,5 +1,4 @@
 from enum import IntEnum
-from typing import Self
 
 
 class OdinAttributeType(IntEnum):
@@ -20,8 +19,7 @@ class OdinAttributeType(IntEnum):
     a_skinningOffsets = 14
     a_color1 = 15
 
-    @classmethod
-    def to_attribute_name(cls, component_type: Self) -> str:
+    def to_attribute_name(self) -> str:
         return {
             OdinAttributeType.a_pos: "POSITION",
             OdinAttributeType.a_normal: "NORMAL",
@@ -31,4 +29,18 @@ class OdinAttributeType(IntEnum):
             OdinAttributeType.a_uv1: "TEXCOORD_1",
             OdinAttributeType.a_color: "COLOR_0",
             OdinAttributeType.a_color1: "COLOR_1",
-        }[component_type]
+            OdinAttributeType.a_tangent: "TANGENT",
+        }[self]
+
+    def is_normalized(self) -> bool:
+        return {
+            OdinAttributeType.a_pos: False,
+            OdinAttributeType.a_normal: True,
+            OdinAttributeType.a_boneindex: False,
+            OdinAttributeType.a_boneweights: False,
+            OdinAttributeType.a_uv0: True,
+            OdinAttributeType.a_uv1: True,
+            OdinAttributeType.a_color: False,
+            OdinAttributeType.a_color1: False,
+            OdinAttributeType.a_tangent: False,
+        }[self]

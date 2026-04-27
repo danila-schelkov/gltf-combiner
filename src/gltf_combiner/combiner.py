@@ -10,7 +10,7 @@ from gltf.exceptions import (
 )
 from gltf_combiner.extensions import SupercellOdinGLTF
 from gltf_combiner.extensions.flatbuffer.deserializer import deserialize_glb_json
-from gltf_combiner.streams import ByteReader, ByteWriter
+from streams import ByteReader, ByteWriter
 
 JSON_REPLACEMENT_LIST = ("textures", "images")
 JSON_SKIP_LIST = ("buffers", "skins", "nodes", "scenes", "meshes")

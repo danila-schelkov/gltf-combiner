@@ -2,13 +2,14 @@ from enum import IntEnum
 
 import numpy as np
 
-from gltf_combiner.extensions.odin.gltf_data_type import DataType
+from .gltf_data_type import DataType
 
 
 class OdinAttributeFormat(IntEnum):
     UByteVector4 = 3
     ColorRGBA = 9
     UByteVector3 = 12
+    ShortVector2 = 22
     FloatVector2 = 29
     FloatVector3 = 30
     NormalizedWeightVector = 36
@@ -18,6 +19,7 @@ class OdinAttributeFormat(IntEnum):
             OdinAttributeFormat.FloatVector3: False,
             OdinAttributeFormat.UByteVector3: False,
             OdinAttributeFormat.UByteVector4: False,
+            OdinAttributeFormat.ShortVector2: True,
             OdinAttributeFormat.NormalizedWeightVector: False,
             OdinAttributeFormat.FloatVector2: False,
             OdinAttributeFormat.ColorRGBA: True,
@@ -28,6 +30,7 @@ class OdinAttributeFormat(IntEnum):
             OdinAttributeFormat.FloatVector3: DataType.Vec3,
             OdinAttributeFormat.UByteVector3: DataType.Vec3,
             OdinAttributeFormat.UByteVector4: DataType.Vec4,
+            OdinAttributeFormat.ShortVector2: DataType.Vec2,
             OdinAttributeFormat.NormalizedWeightVector: DataType.Vec4,
             OdinAttributeFormat.FloatVector2: DataType.Vec2,
             OdinAttributeFormat.ColorRGBA: DataType.Vec4,
@@ -38,6 +41,7 @@ class OdinAttributeFormat(IntEnum):
             OdinAttributeFormat.FloatVector3: 5126,
             OdinAttributeFormat.UByteVector3: 5120,
             OdinAttributeFormat.UByteVector4: 5121,
+            OdinAttributeFormat.ShortVector2: 5122,
             OdinAttributeFormat.NormalizedWeightVector: 5126,
             OdinAttributeFormat.FloatVector2: 5126,
             OdinAttributeFormat.ColorRGBA: 5121,
@@ -48,6 +52,7 @@ class OdinAttributeFormat(IntEnum):
             OdinAttributeFormat.FloatVector3: np.uint32,
             OdinAttributeFormat.UByteVector3: np.byte,
             OdinAttributeFormat.UByteVector4: np.ubyte,
+            OdinAttributeFormat.ShortVector2: np.short,
             OdinAttributeFormat.NormalizedWeightVector: np.float32,
             OdinAttributeFormat.FloatVector2: np.float32,
             OdinAttributeFormat.ColorRGBA: np.ubyte,
@@ -61,4 +66,5 @@ class OdinAttributeFormat(IntEnum):
             OdinAttributeFormat.NormalizedWeightVector: 4,
             OdinAttributeFormat.FloatVector2: 2,
             OdinAttributeFormat.ColorRGBA: 4,
+            OdinAttributeFormat.ShortVector2: 2,
         }[self]
