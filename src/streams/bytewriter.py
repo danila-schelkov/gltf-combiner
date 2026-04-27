@@ -1,13 +1,13 @@
 from struct import pack
 from typing import Literal
 
-from ._common import get_endian_sign
+from ._common import EndianSign, get_endian_sign
 
 
 class ByteWriter:
     def __init__(self, endian: Literal["big", "little"] = "big"):
-        self._buffer = bytearray()
-        self._endian_sign = get_endian_sign(endian)
+        self._buffer: bytearray = bytearray()
+        self._endian_sign: EndianSign = get_endian_sign(endian)
 
     def write(self, value: bytes) -> None:
         self._buffer += value
