@@ -1,5 +1,6 @@
 from collections import OrderedDict
 from enum import IntEnum
+from typing import Any
 
 from flatbuffers import flexbuffers
 from flatbuffers.compat import import_numpy
@@ -99,7 +100,7 @@ def deserialize_flatbuffer(buffer: any, schema: dict) -> dict:
     return result
 
 
-def deserialize_glb_json(data: bytes) -> dict:
+def deserialize_glb_json(data: bytes) -> dict[str, Any]:
     """
     The function takes bytes of glTF FLA2 chunk data and returns a dictionary
     containing the deserialized JSON data.

@@ -17,8 +17,8 @@ JSON_SKIP_LIST = ("buffers", "skins", "nodes", "scenes", "meshes")
 
 
 def build_combined_gltf(
-    geometry_filepath: os.PathLike | str,
-    animation_filepath: os.PathLike | str,
+    geometry_filepath: os.PathLike[str] | str,
+    animation_filepath: os.PathLike[str] | str,
     *,
     fix_texcoords: bool = False,
 ) -> GlTF:
@@ -30,7 +30,7 @@ def build_combined_gltf(
     )
 
 
-def rebuild_gltf(filepath: os.PathLike | str, *, fix_texcoords: bool) -> GlTF:
+def rebuild_gltf(filepath: os.PathLike[str] | str, *, fix_texcoords: bool) -> GlTF:
     geometry_gltf = SupercellOdinGLTF(GlTF.parse(filepath)).remove_odin()
 
     geometry_json_chunk = geometry_gltf.get_chunk_by_type(JSON_CHUNK_TYPE)

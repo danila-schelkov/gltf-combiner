@@ -11,13 +11,13 @@ GLTF_MAGIC = b"glTF"
 GLTF_VERSION = 2
 
 
-def get_file_data(filepath: os.PathLike | str) -> bytes:
+def get_file_data(filepath: os.PathLike[str] | str) -> bytes:
     with open(filepath, "rb") as file:
         file_data = file.read()
         return file_data
 
 
-def write_file_data(filepath: os.PathLike | str, data: bytes):
+def write_file_data(filepath: os.PathLike[str] | str, data: bytes):
     with open(filepath, "wb") as file:
         file.write(data)
 
@@ -34,7 +34,7 @@ class GlTF:
         self._chunks: list[Chunk] = list(chunks)
 
     @staticmethod
-    def parse(filepath: os.PathLike | str) -> "GlTF":
+    def parse(filepath: os.PathLike[str] | str) -> "GlTF":
         gltf = GlTF()
 
         file_data = get_file_data(filepath)
@@ -49,7 +49,7 @@ class GlTF:
 
         return gltf
 
-    def write(self, filepath: os.PathLike | str) -> Self:
+    def write(self, filepath: os.PathLike[str] | str) -> Self:
         self._file_write_buffer = BytesIO()
 
         chunks_buffer = self._write_chunks()

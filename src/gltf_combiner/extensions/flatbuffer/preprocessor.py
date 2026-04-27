@@ -1,9 +1,10 @@
 from collections import OrderedDict
+from typing import Any
 
 
 class Preprocessor:
     @classmethod
-    def preprocess_data(cls, data: any):
+    def preprocess_data(cls, data: Any) -> Any:
         """
         The `preprocess_data` function takes in any data and applies specific preprocessing steps based on
         the data type.
@@ -30,7 +31,7 @@ class Preprocessor:
         return data
 
     @classmethod
-    def _preprocess_list(cls, data: list) -> list:
+    def _preprocess_list(cls, data: list[Any]) -> list[Any]:
         """
         The function preprocess_list takes a list of data, removes any None values, and applies a
         preprocessing function to each remaining value before returning the processed list.
@@ -39,15 +40,15 @@ class Preprocessor:
         :return: preprocessed list.
         """
 
-        result = []
+        result: list[Any] = []
 
         for value in data:
             pre_value = cls.preprocess_data(value)
 
             if pre_value is None:
                 continue
-            else:
-                result.append(pre_value)
+
+            result.append(pre_value)
 
         return result
 

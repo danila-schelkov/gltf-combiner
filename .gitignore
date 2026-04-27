@@ -5,3 +5,5 @@
 .DS_Store
 *.py[oc]
 __pycache__
+.ruff_cache
+.venv
