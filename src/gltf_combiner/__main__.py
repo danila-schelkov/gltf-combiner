@@ -3,11 +3,11 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from gltf_combiner import build_combined_gltf
-from gltf_combiner.gltf.exceptions import (
-    AnimationNotFoundException,
+from gltf.exceptions import (
     AllAnimationChannelsDeletedException,
+    AnimationNotFoundException,
 )
+from gltf_combiner import build_combined_gltf, rebuild_gltf
 
 RESOURCES_PATH = Path("resources")
 COMBINED_PATH = Path("combined")
@@ -51,7 +51,7 @@ def _collect_files_info(input_directory: Path, extension="glb") -> list[Animated
 
                 if match_basename.endswith("_geo"):
                     pattern = re.compile(
-                        f"{match_basename[:-4]}.*(?!_geo)\.{extension}"
+                        f"{match_basename[:-4]}.*(?!_geo)\\.{extension}"
                     )
                     another_matches = list(
                         filter(pattern.match, os.listdir(input_directory))
@@ -82,10 +82,17 @@ def main() -> None:
 
     collected_files = _collect_files_info(input_directory)
     for file_info in collected_files:
-        if len(file_info.animation_files) == 0:
-            continue
-
         print(f"Working with {file_info.filename}...")
+
+        if len(file_info.animation_files) == 0:
+            print("Rebuilding geometry file...")
+            gltf = rebuild_gltf(
+                input_directory / file_info.filename, fix_texcoords=True
+            )
+
+            output_filepath = output_directory / file_info.filename
+            gltf.write(output_filepath)
+            continue
 
         for animation_filename in file_info.animation_files:
             try:

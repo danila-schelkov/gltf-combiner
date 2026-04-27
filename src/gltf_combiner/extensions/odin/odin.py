@@ -3,7 +3,9 @@ from dataclasses import dataclass
 import numpy as np
 import orjson
 
-from ...gltf import BIN_CHUNK_TYPE, FLATBUFFER_CHUNK_TYPE, JSON_CHUNK_TYPE, Chunk, GlTF
+from gltf import (BIN_CHUNK_TYPE, FLATBUFFER_CHUNK_TYPE, JSON_CHUNK_TYPE,
+                  Chunk, GlTF)
+
 from ...streams import ByteReader, ByteWriter
 from .. import deserialize_glb_json
 from .attribute_format import OdinAttributeFormat
@@ -20,6 +22,8 @@ class BufferView:
     data: bytes = b""
 
     def serialize(self) -> dict[str, int]:
+        assert self.offset is not None
+
         data = {
             "buffer": 0,
             "byteOffset": self.offset,
@@ -47,15 +51,18 @@ class SupercellOdinGLTF:
         json_chunk = gltf.get_chunk_by_type(JSON_CHUNK_TYPE)
         flatbuffer_chunk = gltf.get_chunk_by_type(FLATBUFFER_CHUNK_TYPE)
         # Checking info chunks
-        assert json_chunk is not None or flatbuffer_chunk is not None
+        assert json_chunk is not None or (
+            flatbuffer_chunk is not None and flatbuffer_chunk.data is not None
+        )
 
         self._data: dict = (
             json_chunk.json()
-            if json_chunk
+            if json_chunk is not None
             else deserialize_glb_json(flatbuffer_chunk.data)
         )
 
         bin_chunk = gltf.get_chunk_by_type(BIN_CHUNK_TYPE)
+        assert bin_chunk is not None
 
         self._buffers: list[BufferView] = []
         self._odin_buffer_index: int = -1
@@ -145,8 +152,8 @@ class SupercellOdinGLTF:
             parent = odin.get("parent")
             add_child(i, parent)
 
-        for idx, children in children.items():
-            nodes[idx]["children"] = children
+        for idx, children2 in children.items():
+            nodes[idx]["children"] = children2
 
     def process_skins(self) -> None:
         skins: list[dict] = self._data.get("skins", [])
