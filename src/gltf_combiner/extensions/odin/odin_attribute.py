@@ -41,8 +41,9 @@ class OdinAttribute:
                     data, dtype=self._dtype, offset=offset, count=self._elements_count
                 )
 
-        if self._normalized and np.issubdtype(self._dtype, np.integer):
-            info = np.iinfo(self._dtype)
-            array = array.astype(np.float32) / info.max
+        # Note: shouldn't normalize if stored back without type changes
+        # if self._normalized and np.issubdtype(self._dtype, np.integer):
+        #     info = np.iinfo(self._dtype)
+        #     array = array.astype(np.float32) / info.max
 
         return array
