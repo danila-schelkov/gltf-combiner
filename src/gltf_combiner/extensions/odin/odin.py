@@ -531,7 +531,16 @@ class SupercellOdinGLTF:
         self._mesh_descriptors = odin.get("meshDataInfos", [])
 
         if "materials" in odin:
-            self._data["materials"] = odin["materials"]
+            # TODO: MAYBE add:
+            # "pbrMetallicRoughness": {
+            #     "metallicFactor": 0,
+            #     "roughnessFactor": 0.899999976
+            # },
+            # "doubleSided": true,
+            self._data["materials"] = [
+                {"name": material["name"], "extensions": {"SC_shader": material}}
+                for material in odin["materials"]
+            ]
 
         if "animation" in odin:
             self.process_animation(odin["animation"])
